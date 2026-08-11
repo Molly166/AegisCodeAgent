@@ -27,6 +27,14 @@ go.work.sum
 # env file
 .env
 
+# Local Aegis configuration (may reference private endpoints or local policy)
+.aegis.json
+
+# Local AegisCodeAgent reports
+/review.html
+/review.json
+/review.md
+
 # Editor/IDE
 # .idea/
 # .vscode/

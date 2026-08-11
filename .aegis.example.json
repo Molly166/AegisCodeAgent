@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "agent": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "api_key_env": "DEEPSEEK_API_KEY",
+    "thinking": true,
+    "reasoning_effort": "high",
+    "timeout": "3m",
+    "max_steps": 6,
+    "max_candidates": 12,
+    "max_input_bytes": 98304,
+    "max_output_tokens": 8192
+  },
+  "verifier": {
+    "enabled": true,
+    "timeout": "3m",
+    "analyzer_timeout": "2m"
+  }
+}
