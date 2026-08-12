@@ -1,5 +1,7 @@
 # AegisCodeAgent
 
+[English](README.md) | [简体中文](README.zh-CN.md)
+
 AegisCodeAgent is a Go-native, evidence-driven agent for pull-request code review. It is being built as an engineering system: deterministic analysis establishes facts, repository context explains impact, an LLM reasons over that evidence, and a verifier filters unsupported findings before publication.
 
 The project is currently in **Phase 5: verification pipeline**. The CLI resolves Git revisions safely, runs deterministic Go analyzers, builds a budgeted repository context bundle, runs a bounded DeepSeek reasoning loop, and adjudicates every Agent candidate through an independent local evidence gate. Only candidates corroborated by a focused deterministic diagnostic can enter the final findings and affect the verdict.
@@ -200,7 +202,7 @@ internal/report/    Self-contained HTML, JSON, and Markdown renderers
 2. ✅ **Repository context engine** — retrieve changed symbols, interfaces, callers, implementations, and tests under strict budgets; exact type resolution is used when available and confidence-labelled AST inference is the fallback.
 3. ✅ **Reasoning loop** — plan bounded read-only tool calls, preserve thinking tool turns, produce locally validated candidate findings, and isolate the DeepSeek provider behind an extensible interface.
 4. ✅ **Verification pipeline** — validate candidate integrity and exact locations, rerun focused tests/vet, correlate independent diagnostics, calibrate confidence, deduplicate existing evidence, and withhold unsupported findings.
-5. **GitHub integration** — GitHub App/Action, check runs, inline PR comments, idempotent updates, permissions hardening, and prompt-injection isolation.
+5. **GitHub Actions integration** — run reviews on pull-request updates, publish check summaries and inline annotations, upload HTML artifacts, support idempotent reruns, and isolate untrusted contributions from secrets.
 6. **Evaluation** — curated buggy/clean PR corpus, precision and recall, false-positive rate, latency/cost percentiles, and ablation experiments.
 
 ## Quality gates
