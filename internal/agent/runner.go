@@ -15,6 +15,11 @@ import (
 	"github.com/Molly166/AegisCodeAgent/internal/review"
 )
 
+const (
+	maxExecutedToolCallsPerStep = 4
+	maxReturnedToolCallsPerStep = 16
+)
+
 type Runner struct {
 	provider Provider
 	tools    ToolExecutor
@@ -97,6 +102,11 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 		return result, err
 	}
 	result.Model = configuration.Model
+	if !hasReviewableSourceChange(input.Files) {
+		result.Status = review.AgentSkipped
+		result.Summary = "Reasoning was skipped because this comparison contains no supported source-code changes."
+		return result, nil
+	}
 	if r.provider == nil {
 		err := errors.New("agent provider is required")
 		result.Warnings = append(result.Warnings, err.Error())
@@ -139,23 +149,38 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 		messages = append(messages, response.Message)
 
 		if len(response.Message.ToolCalls) > 0 {
-			if len(response.Message.ToolCalls) > 4 {
-				err := fmt.Errorf("model requested %d tools in one step; maximum is 4", len(response.Message.ToolCalls))
+			if len(response.Message.ToolCalls) > maxReturnedToolCallsPerStep {
+				err := fmt.Errorf("model returned %d tool calls in one step; protocol maximum is %d", len(response.Message.ToolCalls), maxReturnedToolCallsPerStep)
 				result.Warnings = append(result.Warnings, err.Error())
 				return result, err
 			}
-			for _, call := range response.Message.ToolCalls {
-				toolResult := r.tools.Execute(ctx, call)
-				result.ToolCalls = append(result.ToolCalls, review.AgentToolExecution{
-					Step: step, CallID: truncateText(call.ID, 160), Name: truncateText(call.Name, 80),
-					Arguments: truncateText(string(call.Arguments), 2000), Status: toolResult.Status,
-					DurationMillis: toolResult.Duration.Milliseconds(), ResultSummary: toolResult.Summary,
-				})
+			if len(response.Message.ToolCalls) > maxExecutedToolCallsPerStep {
+				result.Warnings = append(result.Warnings, fmt.Sprintf(
+					"step %d requested %d tool calls; %d exceeded the execution budget and were returned to the model as rejected",
+					step, len(response.Message.ToolCalls), len(response.Message.ToolCalls)-maxExecutedToolCallsPerStep,
+				))
+			}
+			for index, call := range response.Message.ToolCalls {
 				if strings.TrimSpace(call.ID) == "" {
 					err := errors.New("model returned a tool call without an ID")
 					result.Warnings = append(result.Warnings, err.Error())
 					return result, err
 				}
+				toolResult := ToolResult{}
+				if index < maxExecutedToolCallsPerStep {
+					toolResult = r.tools.Execute(ctx, call)
+				} else {
+					detail := fmt.Sprintf("per-step tool execution budget is %d; request this tool again in the next turn", maxExecutedToolCallsPerStep)
+					toolResult = ToolResult{
+						Content: marshalToolOutput(map[string]any{"ok": false, "error": detail}),
+						Status:  review.AgentToolRejected, Summary: detail,
+					}
+				}
+				result.ToolCalls = append(result.ToolCalls, review.AgentToolExecution{
+					Step: step, CallID: truncateText(call.ID, 160), Name: truncateText(call.Name, 80),
+					Arguments: truncateText(string(call.Arguments), 2000), Status: toolResult.Status,
+					DurationMillis: toolResult.Duration.Milliseconds(), ResultSummary: toolResult.Summary,
+				})
 				messages = append(messages, Message{Role: "tool", ToolCallID: call.ID, Content: toolResult.Content})
 			}
 			continue
@@ -186,6 +211,19 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 	result.Status = review.AgentPartial
 	result.Warnings = uniqueStrings(append(result.Warnings, "agent stopped after reaching the configured step limit"))
 	return result, nil
+}
+
+func hasReviewableSourceChange(files []review.ChangedFile) bool {
+	for _, file := range files {
+		if file.Binary || file.Status == review.FileStatusDeleted || file.NewPath == "" || !allowedToolPath(file.NewPath) {
+			continue
+		}
+		switch strings.ToLower(filepath.Ext(file.NewPath)) {
+		case ".go", ".mod", ".sum", ".json", ".yaml", ".yml", ".toml", ".sql", ".proto":
+			return true
+		}
+	}
+	return false
 }
 
 func addUsage(total *review.AgentUsage, value review.AgentUsage) {

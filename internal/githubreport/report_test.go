@@ -48,6 +48,15 @@ func TestIncompleteReviewBlocksIndependently(t *testing.T) {
 	}
 }
 
+func TestSkippedOptionalStagesDoNotBlock(t *testing.T) {
+	report := review.NewReport(review.Comparison{}, nil, nil)
+	report.Agent = review.EmptyAgentRun(review.AgentSkipped)
+	result := Evaluate(report, PriorityP1, true)
+	if result.Blocked || result.Incomplete {
+		t.Fatalf("skipped optional reasoning stage blocked the review: %+v", result)
+	}
+}
+
 func TestRenderSummary(t *testing.T) {
 	report := reportFixture()
 	output := string(RenderSummary(report, Options{
