@@ -6,6 +6,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: aegis-review-${{ github.event.pull_request.number }}
@@ -128,17 +129,30 @@ jobs:
           fi
 
       - name: Publish summary, annotations, and merge gate
+        id: publish
+        shell: bash
         run: |
+          summary_path="$GITHUB_WORKSPACE/artifacts/review-summary.md"
+          set +e
           "${{ steps.toolchain.outputs.publisher }}" github \
             --report "$GITHUB_WORKSPACE/artifacts/review.json" \
             --html-output "$GITHUB_WORKSPACE/artifacts/review.html" \
-            --summary "$GITHUB_STEP_SUMMARY" \
+            --summary "$summary_path" \
             --artifact-name "$AEGIS_ARTIFACT_NAME" \
             --fail-on "$AEGIS_FAIL_ON" \
             --fail-on-incomplete=true \
             --max-annotations 50
+          publish_exit=$?
+          set -e
+
+          if [[ ! -s "$summary_path" ]]; then
+            printf '# 🛡️ Aegis Code Review\n\n> ❌ **Review publishing failed.** Open the workflow run for diagnostics.\n' > "$summary_path"
+          fi
+          cat "$summary_path" >> "$GITHUB_STEP_SUMMARY"
+          exit "$publish_exit"
 
       - name: Upload complete Aegis evidence report
+        id: upload-report
         if: always() && hashFiles('artifacts/**') != ''
         uses: actions/upload-artifact@v7
         with:
@@ -146,3 +160,64 @@ jobs:
           path: artifacts/
           if-no-files-found: error
           retention-days: 14
+
+      - name: Publish pull-request review feedback
+        if: >-
+          ${{
+            always() &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            steps.upload-report.outcome == 'success'
+          }}
+        uses: actions/github-script@v9
+        env:
+          AEGIS_SUMMARY_PATH: ${{ github.workspace }}/artifacts/review-summary.md
+          AEGIS_ARTIFACT_URL: ${{ steps.upload-report.outputs.artifact-url }}
+          AEGIS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AEGIS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          retries: 3
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- aegis-code-agent-review -->';
+            const summary = fs.readFileSync(process.env.AEGIS_SUMMARY_PATH, 'utf8').trim();
+            const artifactURL = process.env.AEGIS_ARTIFACT_URL;
+            const runURL = process.env.AEGIS_RUN_URL;
+            const headSHA = process.env.AEGIS_HEAD_SHA.slice(0, 12);
+            const body = [
+              marker,
+              summary,
+              '',
+              '---',
+              '',
+              '[⬇️ Download the complete HTML evidence report](' + artifactURL + ') · [View workflow run](' + runURL + ')',
+              '',
+              '_Updated for `' + headSHA + '`. Aegis refreshes this comment after every review run._',
+            ].join('\n');
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
