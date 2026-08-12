@@ -53,13 +53,21 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 	if _, err := b.runner.LookPath("go"); err != nil {
 		return review.ContextBundle{}, errors.New("go is not installed or not available on PATH")
 	}
+	repository, err := filepath.Abs(input.Repository)
+	if err != nil {
+		return review.ContextBundle{}, fmt.Errorf("resolve repository path: %w", err)
+	}
+	repository, err = filepath.EvalSymlinks(repository)
+	if err != nil {
+		return review.ContextBundle{}, fmt.Errorf("resolve repository symlinks: %w", err)
+	}
 	budget := normalizeBudget(input.Budget)
-	packages, err := b.loadPackages(ctx, input.Repository, input.Packages)
+	packages, err := b.loadPackages(ctx, repository, input.Packages)
 	if err != nil {
 		return review.ContextBundle{}, err
 	}
-	exports := b.loadExports(ctx, input.Repository, input.Packages)
-	index := newRepositoryIndex(input.Repository, budget, exports)
+	exports := b.loadExports(ctx, repository, input.Packages)
+	index := newRepositoryIndex(repository, budget, exports)
 	for _, packageInfo := range packages {
 		if err := ctx.Err(); err != nil {
 			return review.ContextBundle{}, err
@@ -152,6 +160,7 @@ func (b Builder) loadPackages(ctx context.Context, repository string, patterns [
 		if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 			continue
 		}
+		packageInfo.Dir = resolvedDirectory
 		packages = append(packages, packageInfo)
 	}
 	sort.Slice(packages, func(i, j int) bool { return packages[i].ImportPath < packages[j].ImportPath })
