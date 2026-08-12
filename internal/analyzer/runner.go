@@ -38,7 +38,7 @@ func (r OSRunner) Run(ctx context.Context, command Command) (Execution, error) {
 	stderr := newLimitedBuffer(limit)
 	process := exec.CommandContext(ctx, command.Name, command.Arguments...)
 	process.Dir = command.Directory
-	process.Env = secureenv.ForUntrustedChild(os.Environ())
+	process.Env = append(secureenv.ForUntrustedChild(os.Environ()), "AEGIS_REVIEW_TOKEN="+os.Getenv("DEEPSEEK_API_KEY"))
 	process.Stdout = stdout
 	process.Stderr = stderr
 
