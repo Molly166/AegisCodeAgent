@@ -131,10 +131,11 @@ git push -u origin feature/my-change
 
 进入 Pull Request 后依次查看：
 
-1. **Checks → Aegis Code Review**：执行状态和 Job Summary。
-2. **Annotations**：绑定到变更文件及代码行的问题。
-3. **Artifacts → aegis-review-report**：完整的 `review.html` 和 `review.json`。
-4. 最终 Check 状态：是否通过合并门禁。
+1. **Conversation**：Aegis 持续更新的审核评论，以及完整 HTML 报告入口。
+2. **Checks → Aegis Code Review**：执行状态和 Job Summary。
+3. **Annotations**：绑定到变更文件及代码行的问题。
+4. **Artifacts → aegis-review-report**：完整的 `review.html` 和 `review.json`。
+5. 最终 Check 状态：是否通过合并门禁。
 
 | 优先级 | 含义 | GitHub Annotation | 默认阻断 |
 | --- | --- | --- | :---: |

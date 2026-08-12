@@ -131,10 +131,11 @@ Los Pull Requests que solo modifican documentación también activan el Workflow
 
 Abre el Pull Request y revisa:
 
-1. **Checks → Aegis Code Review** para ver el estado de ejecución y el Job Summary.
-2. **Annotations** para consultar los hallazgos asociados a archivos y líneas modificados.
-3. **Artifacts → aegis-review-report** para descargar `review.html` y `review.json`.
-4. La conclusión final del Check para conocer la decisión de fusión.
+1. **Conversation** para consultar el comentario de revisión que Aegis mantiene actualizado y el enlace al informe HTML completo.
+2. **Checks → Aegis Code Review** para ver el estado de ejecución y el Job Summary.
+3. **Annotations** para consultar los hallazgos asociados a archivos y líneas modificados.
+4. **Artifacts → aegis-review-report** para descargar `review.html` y `review.json`.
+5. La conclusión final del Check para conocer la decisión de fusión.
 
 | Prioridad | Significado | Annotation de GitHub | Bloquea por defecto |
 | --- | --- | --- | :---: |

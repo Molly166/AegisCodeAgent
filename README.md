@@ -131,10 +131,11 @@ Documentation-only pull requests still trigger the workflow and receive a summar
 
 Open the pull request and inspect:
 
-1. **Checks → Aegis Code Review** for execution state and the Job Summary.
-2. **Annotations** for findings attached to changed files and lines.
-3. **Artifacts → aegis-review-report** for `review.html` and `review.json`.
-4. The final check conclusion for the merge decision.
+1. **Conversation** for Aegis's continuously updated review comment and complete HTML report link.
+2. **Checks → Aegis Code Review** for execution state and the Job Summary.
+3. **Annotations** for findings attached to changed files and lines.
+4. **Artifacts → aegis-review-report** for `review.html` and `review.json`.
+5. The final check conclusion for the merge decision.
 
 | Priority | Meaning | GitHub annotation | Blocks by default |
 | --- | --- | --- | :---: |
