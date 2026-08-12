@@ -4,7 +4,7 @@
 
 AegisCodeAgent is a Go-native, evidence-driven agent for pull-request code review. It is being built as an engineering system: deterministic analysis establishes facts, repository context explains impact, an LLM reasons over that evidence, and a verifier filters unsupported findings before publication.
 
-The project is currently in **Phase 5: verification pipeline**. The CLI resolves Git revisions safely, runs deterministic Go analyzers, builds a budgeted repository context bundle, runs a bounded DeepSeek reasoning loop, and adjudicates every Agent candidate through an independent local evidence gate. Only candidates corroborated by a focused deterministic diagnostic can enter the final findings and affect the verdict.
+The project is currently in **Phase 6: GitHub Actions review integration**. Pull-request updates now trigger a trusted Aegis reviewer automatically. The engine resolves Git revisions safely, runs deterministic Go analyzers, builds a budgeted repository context bundle, executes a bounded DeepSeek reasoning loop when a same-repository secret is available, and adjudicates every Agent candidate through an independent local evidence gate.
 
 ## What works today
 
@@ -36,15 +36,45 @@ The project is currently in **Phase 5: verification pipeline**. The CLI resolves
 - Calibrate confidence and cap promoted severity at the strongest deterministic evidence level.
 - Produce a responsive, printable, dependency-free HTML report.
 - Export Markdown for compatibility and versioned JSON for automation.
+- Review pull requests automatically when they are opened, reopened, marked ready, or receive a new commit.
+- Publish P0-P3 GitHub annotations and a native Job Summary; fail the merge gate on P0/P1 by default.
+- Build the reviewer from the trusted PR base commit while analyzing the exact head commit in a separate worktree.
+- Strip credential-shaped environment variables from every repository-controlled Git and analyzer subprocess.
+- Upload the complete HTML and JSON evidence as a GitHub Actions artifact and cancel stale runs after a new push.
 - Run unit and Git integration tests in GitHub Actions.
 
-## Quick start
+## Automatic GitHub pull-request review
+
+No local Aegis process is required. The repository includes [`.github/workflows/aegis-review.yml`](.github/workflows/aegis-review.yml). Once this workflow exists on `master`, opening a pull request or pushing a new commit to it automatically starts the `Aegis Code Review` check.
+
+To enable the full DeepSeek + Verifier path, add the key under **Settings → Secrets and variables → Actions → New repository secret**:
+
+```text
+DEEPSEEK_API_KEY=<your key>
+```
+
+Without that secret, Aegis still runs deterministic `go test` and `go vet` review. Fork and Dependabot pull requests never receive the secret and automatically use this static-only mode.
+
+Each run publishes:
+
+- a GitHub Job Summary with P0/P1/P2/P3 counts and stage status;
+- line-level `error`, `warning`, and `notice` annotations in the pull request checks;
+- an `aegis-review-report` artifact containing `review.html` and `review.json`;
+- a failed `Aegis Code Review` check when P0/P1 exists or a requested review stage is incomplete.
+
+Priority mapping is deterministic: `critical → P0`, `high → P1`, `medium → P2`, and `low/info → P3`. Add `Aegis Code Review` as a required status check in the `master` branch ruleset if P0/P1 findings must block merges. GitHub's existing notification settings handle web and email notifications for failed checks; Aegis does not operate a separate mail service.
+
+Security boundary: fork and Dependabot pull requests are untrusted and always run without repository secrets. Same-repository branches are treated as trusted by GitHub for secret access, so restrict write access and require review for changes under `.github/workflows/`. Aegis still builds the review engine from the base commit and strips credential-shaped variables from repository-controlled subprocesses as defense in depth.
+
+Bootstrap note: the pull request that first introduces this workflow is reviewed by the older trusted binary from `master` in static-only mode. Its proposed binary is used only to publish the already-produced JSON and receives no secret. Manually inspect that first run and the workflow diff; after it is merged, later pull requests use the complete trusted v0.6+ pipeline from the base commit.
+
+## Local CLI (optional)
 
 Requirements: Go 1.23+ and Git.
 
 ```bash
 go build -o aegis ./cmd/aegis
-./aegis review --repo . --base main --head HEAD --output review.html
+./aegis review --repo . --base master --head HEAD --output review.html
 ```
 
 Open `review.html` in a browser. HTML is the default report format, so `--format html` is optional. By default, analysis runs `go test` and `go vet` for changed Go packages.
@@ -61,7 +91,7 @@ cp .env.example .env
 ./aegis review \
   --config .aegis.json \
   --repo . \
-  --base main \
+  --base master \
   --head HEAD \
   --output review.html
 ```
@@ -75,7 +105,7 @@ Repository context is enabled by default and indexes all repository packages so 
 ```bash
 ./aegis review \
   --repo . \
-  --base main \
+  --base master \
   --head HEAD \
   --context-scope changed \
   --context-max-symbols 40 \
@@ -88,7 +118,7 @@ Run every supported analyzer when `staticcheck` and `gosec` are installed on `PA
 ```bash
 ./aegis review \
   --repo . \
-  --base main \
+  --base master \
   --head HEAD \
   --analyzers all \
   --output review.html
@@ -99,7 +129,7 @@ For evidence integrity, the checked-out worktree must be clean and match the req
 For CI or other tools:
 
 ```bash
-./aegis review --repo . --base main --head HEAD --format json --output review.json
+./aegis review --repo . --base master --head HEAD --format json --output review.json
 ```
 
 All review flags:
@@ -107,7 +137,7 @@ All review flags:
 ```text
 --repo       path to the Git repository (default ".")
 --config     explicit path to an Aegis JSON config file
---base       base Git revision (default "main")
+--base       base Git revision (default "master")
 --head       head Git revision (default "HEAD")
 --format     html, markdown, or json (default "html")
 --output     output path, or - for stdout (default "-")
@@ -139,6 +169,20 @@ All review flags:
 --verifier-timeout  complete verification deadline (default 3m)
 --verifier-analyzer-timeout  per-tool focused analyzer deadline (default 2m)
 ```
+
+The Workflow uses the internal publisher as follows:
+
+```text
+aegis github
+  --report review.json
+  --html-output review.html
+  --summary "$GITHUB_STEP_SUMMARY"
+  --fail-on p1
+  --fail-on-incomplete=true
+  --max-annotations 50
+```
+
+`--fail-on` accepts `p0`, `p1`, `p2`, `p3`, or `none`. This command is intended for GitHub Actions; regular users normally do not invoke it directly.
 
 ## Architecture
 
@@ -179,7 +223,7 @@ Diff collector ──► unified-diff parser ──► affected package selector
                          ▼                      ▼                      ▼
                     HTML dossier          JSON contract         Markdown report
 
-Next phases: GitHub PR ──► evaluation ──► production hardening
+Next phases: evaluation ──► production hardening
 ```
 
 Current package boundaries:
@@ -192,6 +236,8 @@ internal/context/   AST/type index, relationship graph, ranking, budgets
 internal/config/    Strict JSON config and narrow dotenv credential loading
 internal/agent/     Provider protocol, DeepSeek adapter, prompt, tools, loop, validation
 internal/verifier/  Local invariants, focused analyzers, evidence correlation, adjudication
+internal/githubreport/ P0-P3 mapping, GitHub Summary, annotations, merge gate
+internal/secureenv/    Credential stripping for repository-controlled child processes
 internal/review/    Stable domain model shared by every review stage
 internal/report/    Self-contained HTML, JSON, and Markdown renderers
 ```
@@ -202,7 +248,7 @@ internal/report/    Self-contained HTML, JSON, and Markdown renderers
 2. ✅ **Repository context engine** — retrieve changed symbols, interfaces, callers, implementations, and tests under strict budgets; exact type resolution is used when available and confidence-labelled AST inference is the fallback.
 3. ✅ **Reasoning loop** — plan bounded read-only tool calls, preserve thinking tool turns, produce locally validated candidate findings, and isolate the DeepSeek provider behind an extensible interface.
 4. ✅ **Verification pipeline** — validate candidate integrity and exact locations, rerun focused tests/vet, correlate independent diagnostics, calibrate confidence, deduplicate existing evidence, and withhold unsupported findings.
-5. **GitHub Actions integration** — run reviews on pull-request updates, publish check summaries and inline annotations, upload HTML artifacts, support idempotent reruns, and isolate untrusted contributions from secrets.
+5. ✅ **GitHub Actions integration** — run reviews on pull-request updates, publish check summaries and inline annotations, upload HTML artifacts, support idempotent reruns, and isolate untrusted contributions from secrets.
 6. **Evaluation** — curated buggy/clean PR corpus, precision and recall, false-positive rate, latency/cost percentiles, and ablation experiments.
 
 ## Quality gates

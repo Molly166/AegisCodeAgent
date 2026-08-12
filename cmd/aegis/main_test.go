@@ -11,6 +11,8 @@ import (
 	"time"
 
 	appconfig "github.com/Molly166/AegisCodeAgent/internal/config"
+	"github.com/Molly166/AegisCodeAgent/internal/report"
+	"github.com/Molly166/AegisCodeAgent/internal/review"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -81,6 +83,83 @@ func TestReviewVerifierDefaults(t *testing.T) {
 	}
 }
 
+func TestGitHubPublishesSummaryAnnotationsAndBlocksP1(t *testing.T) {
+	directory := t.TempDir()
+	reportPath := filepath.Join(directory, "review.json")
+	htmlPath := filepath.Join(directory, "review.html")
+	summaryPath := filepath.Join(directory, "summary.md")
+	reviewReport := review.NewReport(review.Comparison{Base: "master", Head: "feature"}, []review.ChangedFile{{NewPath: "main.go"}}, []review.Finding{{
+		Title: "Nil dereference", Description: "A nil value can reach this dereference.",
+		Severity: review.SeverityHigh, Category: review.CategoryBug,
+		Location: review.Location{Path: "main.go", StartLine: 12}, Source: "go-vet",
+	}})
+	reviewReport.Context = review.EmptyContextBundle(review.ContextComplete)
+	encoded, err := report.RenderJSON(reviewReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCLITestFile(t, reportPath, string(encoded))
+
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"github", "--report", reportPath, "--html-output", htmlPath, "--summary", summaryPath,
+		"--fail-on", "p1", "--artifact-name", "aegis-evidence",
+	}, &stdout, &stderr)
+	if code != 1 || !strings.Contains(stderr.String(), "blocked by P1") {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stdout.String(), "::error ") || !strings.Contains(stdout.String(), "file=main.go,line=12") {
+		t.Fatalf("missing GitHub annotation: %q", stdout.String())
+	}
+	for path, expected := range map[string]string{htmlPath: "AegisCodeAgent", summaryPath: "aegis-evidence"} {
+		content, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(content), expected) {
+			t.Fatalf("%s content=%q err=%v", path, content, err)
+		}
+	}
+}
+
+func TestGitHubAllowsCleanReportAndValidatesInputs(t *testing.T) {
+	directory := t.TempDir()
+	reportPath := filepath.Join(directory, "review.json")
+	reviewReport := review.NewReport(review.Comparison{Base: "master", Head: "feature"}, nil, nil)
+	encoded, err := report.RenderJSON(reviewReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeCLITestFile(t, reportPath, string(encoded))
+	var stdout, stderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"github", "--report", reportPath, "--html-output", filepath.Join(directory, "review.html"),
+		"--summary", filepath.Join(directory, "summary.md"), "--annotations=false",
+	}, &stdout, &stderr)
+	if code != 0 || stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatalf("code=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code = run(context.Background(), []string{"github", "--report", reportPath, "--summary", filepath.Join(directory, "summary-2.md"), "--fail-on", "critical"}, &stdout, &stderr)
+	if code != 2 || !strings.Contains(stderr.String(), "unsupported priority") {
+		t.Fatalf("code=%d stderr=%q", code, stderr.String())
+	}
+}
+
+func TestLoadJSONReportRejectsUnknownSchemaAndTrailingData(t *testing.T) {
+	directory := t.TempDir()
+	path := filepath.Join(directory, "review.json")
+	for _, content := range []string{
+		`{"schema_version":"v0"}`,
+		`{"schema_version":"v5"} {}`,
+		`{"schema_version":"v5","unknown":true}`,
+	} {
+		writeCLITestFile(t, path, content)
+		if _, err := loadJSONReport(path); err == nil {
+			t.Fatalf("loadJSONReport(%q) error = nil", content)
+		}
+	}
+}
+
 func TestReviewRunsGoVetAndWritesHTMLFinding(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
@@ -123,6 +202,55 @@ func TestReviewRunsGoVetAndWritesHTMLFinding(t *testing.T) {
 	for _, expected := range []string{"Analyzer execution", "go-vet", "FINDINGS", "fmt.Printf", "main.go", "Repository context", "Changed symbols", "Token estimate"} {
 		if !strings.Contains(html, expected) {
 			t.Errorf("HTML does not contain %q", expected)
+		}
+	}
+}
+
+func TestReviewAndGitHubPublisherEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go is not installed")
+	}
+	repository := t.TempDir()
+	runCLITestGit(t, repository, "init", "-b", "master")
+	runCLITestGit(t, repository, "config", "user.name", "Aegis Test")
+	runCLITestGit(t, repository, "config", "user.email", "aegis@example.com")
+	writeCLITestFile(t, filepath.Join(repository, "go.mod"), "module example.com/aegisgithubfixture\n\ngo 1.23\n")
+	writeCLITestFile(t, filepath.Join(repository, "main.go"), "package sample\n\nfunc Value() int { return 1 }\n")
+	writeCLITestFile(t, filepath.Join(repository, "main_test.go"), "package sample\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) {\n\tif Value() != 1 { t.Fatal(\"wrong value\") }\n}\n")
+	runCLITestGit(t, repository, "add", ".")
+	runCLITestGit(t, repository, "commit", "-m", "base")
+	base := strings.TrimSpace(runCLITestGit(t, repository, "rev-parse", "HEAD"))
+
+	writeCLITestFile(t, filepath.Join(repository, "main_test.go"), "package sample\n\nimport \"testing\"\n\nfunc TestValue(t *testing.T) {\n\tt.Fatal(\"intentional regression\")\n}\n")
+	runCLITestGit(t, repository, "add", "main_test.go")
+	runCLITestGit(t, repository, "commit", "-m", "introduce failing regression test")
+
+	reportPath := filepath.Join(repository, "review.json")
+	var reviewStdout, reviewStderr bytes.Buffer
+	if code := run(context.Background(), []string{
+		"review", "--repo", repository, "--base", base, "--head", "HEAD",
+		"--agent-provider", "none", "--format", "json", "--output", reportPath,
+	}, &reviewStdout, &reviewStderr); code != 0 {
+		t.Fatalf("review code=%d stdout=%q stderr=%q", code, reviewStdout.String(), reviewStderr.String())
+	}
+
+	summaryPath := filepath.Join(repository, "summary.md")
+	htmlPath := filepath.Join(repository, "review.html")
+	var publishStdout, publishStderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"github", "--report", reportPath, "--html-output", htmlPath,
+		"--summary", summaryPath, "--fail-on", "p1",
+	}, &publishStdout, &publishStderr)
+	if code != 1 || !strings.Contains(publishStdout.String(), "::error ") || !strings.Contains(publishStderr.String(), "blocked by P1") {
+		t.Fatalf("publish code=%d stdout=%q stderr=%q", code, publishStdout.String(), publishStderr.String())
+	}
+	for path, expected := range map[string]string{summaryPath: "P1", htmlPath: "intentional regression"} {
+		content, err := os.ReadFile(path)
+		if err != nil || !strings.Contains(string(content), expected) {
+			t.Fatalf("%s content=%q err=%v", path, content, err)
 		}
 	}
 }

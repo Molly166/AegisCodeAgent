@@ -1,0 +1,98 @@
+package githubreport
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/Molly166/AegisCodeAgent/internal/review"
+)
+
+func TestPriorityMappingAndGate(t *testing.T) {
+	report := reportFixture()
+	counts := Count(report)
+	if counts.P0 != 1 || counts.P1 != 1 || counts.P2 != 1 || counts.P3 != 1 {
+		t.Fatalf("unexpected counts: %+v", counts)
+	}
+	if result := Evaluate(report, PriorityP1, true); !result.Blocked || result.Highest != PriorityP0 || result.Incomplete {
+		t.Fatalf("unexpected gate result: %+v", result)
+	}
+	if result := Evaluate(report, PriorityNone, true); result.Blocked {
+		t.Fatalf("none threshold blocked complete report: %+v", result)
+	}
+	for input, expected := range map[string]Priority{"P0": PriorityP0, "p1": PriorityP1, " p2 ": PriorityP2, "P3": PriorityP3, "none": PriorityNone} {
+		actual, err := ParsePriority(input)
+		if err != nil || actual != expected {
+			t.Fatalf("ParsePriority(%q) = %q, %v", input, actual, err)
+		}
+	}
+	if _, err := ParsePriority("critical"); err == nil {
+		t.Fatal("invalid priority was accepted")
+	}
+}
+
+func TestIncompleteReviewBlocksIndependently(t *testing.T) {
+	report := review.NewScopeReport(review.Comparison{}, nil)
+	if result := Evaluate(report, PriorityNone, true); !result.Blocked || !result.Incomplete || len(result.IncompleteReasons) != 1 {
+		t.Fatalf("scope-only report should be incomplete: %+v", result)
+	}
+	report.Analysis.Status = review.AnalysisPartial
+	report.Context.Status = review.ContextFailed
+	report.Agent.Status = review.AgentPartial
+	report.Verification.Status = review.VerificationFailed
+	result := Evaluate(report, PriorityNone, true)
+	if !result.Blocked || !result.Incomplete || len(result.IncompleteReasons) != 4 {
+		t.Fatalf("unexpected incomplete result: %+v", result)
+	}
+	if Evaluate(report, PriorityNone, false).Blocked {
+		t.Fatal("incomplete report blocked when fail-on-incomplete was disabled")
+	}
+}
+
+func TestRenderSummary(t *testing.T) {
+	report := reportFixture()
+	output := string(RenderSummary(report, Options{
+		FailOn: PriorityP1, FailOnIncomplete: true, ArtifactName: "aegis-review-report", MaxFindings: 2,
+	}))
+	for _, expected := range []string{"Aegis Code Review", "Merge gate blocked", "| 1 | 1 | 1 | 1 |", "P0", "main.go:10", "aegis-review-report", "additional finding"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("summary does not contain %q:\n%s", expected, output)
+		}
+	}
+}
+
+func TestRenderAnnotationsEscapesCommandsAndBoundsOutput(t *testing.T) {
+	report := reportFixture()
+	report.Findings[0].Title = "unsafe,title: 100%\n::warning::inject"
+	report.Findings[0].Description = "first line\n::error::injected"
+	report.Findings[0].Location.Path = "internal/a,b.go"
+	output := string(RenderAnnotations(report, 2))
+	for _, expected := range []string{"::error ", "title=P0 · unsafe%2Ctitle%3A 100%25", "file=internal/a%2Cb.go", "first line ::error::injected", "additional finding(s)"} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("annotations do not contain %q:\n%s", expected, output)
+		}
+	}
+	if strings.Count(output, "\n") != 3 {
+		t.Fatalf("unexpected annotation line count: %q", output)
+	}
+}
+
+func TestUnsafeAnnotationPathIsOmitted(t *testing.T) {
+	report := reportFixture()
+	report.Findings = report.Findings[:1]
+	report.Findings[0].Location.Path = "../outside.go"
+	output := string(RenderAnnotations(report, 10))
+	if strings.Contains(output, "file=") || !strings.Contains(output, "title=P0") {
+		t.Fatalf("unsafe path was published: %s", output)
+	}
+}
+
+func reportFixture() review.ReviewReport {
+	report := review.NewReport(review.Comparison{Base: "master", Head: "feature"}, []review.ChangedFile{{NewPath: "main.go"}}, []review.Finding{
+		{Title: "Critical corruption", Severity: review.SeverityCritical, Location: review.Location{Path: "main.go", StartLine: 10}, Description: "data can be corrupted", Source: "gosec"},
+		{Title: "Nil dereference", Severity: review.SeverityHigh, Location: review.Location{Path: "main.go", StartLine: 20}, Evidence: "nil reaches dereference", Source: "verifier:go-test"},
+		{Title: "Performance regression", Severity: review.SeverityMedium, Location: review.Location{Path: "main.go", StartLine: 30}, Source: "agent"},
+		{Title: "Maintenance issue", Severity: review.SeverityLow, Location: review.Location{Path: "main.go", StartLine: 40}, Suggestion: "simplify it", Source: "staticcheck"},
+	})
+	report.Context = review.EmptyContextBundle(review.ContextComplete)
+	return report
+}

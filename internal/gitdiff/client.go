@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Molly166/AegisCodeAgent/internal/review"
+	"github.com/Molly166/AegisCodeAgent/internal/secureenv"
 )
 
 const defaultTimeout = 30 * time.Second
@@ -139,6 +140,7 @@ func resolveRevision(ctx context.Context, repository, revision string) (string, 
 func runGit(ctx context.Context, repository string, arguments ...string) ([]byte, error) {
 	commandArguments := append([]string{"-C", repository}, arguments...)
 	command := exec.CommandContext(ctx, "git", commandArguments...)
+	command.Env = secureenv.ForUntrustedChild(os.Environ())
 	output, err := command.CombinedOutput()
 	if err == nil {
 		return output, nil

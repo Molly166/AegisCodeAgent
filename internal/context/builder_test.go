@@ -126,6 +126,31 @@ func TestBuilderUsesRealGoList(t *testing.T) {
 	}
 }
 
+func TestBuilderCanonicalizesRepositorySymlink(t *testing.T) {
+	repository, serviceSource := createContextFixture(t)
+	alias := filepath.Join(t.TempDir(), "repository-link")
+	if err := os.Symlink(repository, alias); err != nil {
+		t.Skipf("create repository symlink: %v", err)
+	}
+	packageJSON, _ := json.Marshal(goListPackage{
+		Dir: repository, ImportPath: "example.com/contextfixture", Name: "contextfixture",
+		GoFiles: []string{"service.go"}, TestGoFiles: []string{"service_test.go"},
+	})
+	bundle, err := NewBuilder(contextRunner{
+		available: true, execution: analyzer.Execution{Stdout: string(packageJSON)},
+	}).Build(context.Background(), Input{
+		Repository: alias,
+		Packages:   []string{"./..."},
+		Files:      changedServiceFile(serviceSource),
+	})
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+	if !containsSymbol(bundle.ChangedSymbols, "*Worker.Run") {
+		t.Fatalf("changed method not found through repository symlink: %+v", bundle.ChangedSymbols)
+	}
+}
+
 func TestBuilderReportsGoListFailure(t *testing.T) {
 	_, err := NewBuilder(contextRunner{
 		available: true,

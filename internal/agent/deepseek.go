@@ -111,7 +111,7 @@ func (p *DeepSeekProvider) Complete(ctx context.Context, request CompletionReque
 	httpRequest.Header.Set("Authorization", "Bearer "+p.apiKey)
 	httpRequest.Header.Set("Content-Type", "application/json")
 	httpRequest.Header.Set("Accept", "application/json")
-	httpRequest.Header.Set("User-Agent", "AegisCodeAgent/0.4")
+	httpRequest.Header.Set("User-Agent", "AegisCodeAgent/0.6")
 
 	httpResponse, err := p.httpClient.Do(httpRequest)
 	if err != nil {

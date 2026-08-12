@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,12 +17,16 @@ import (
 	appconfig "github.com/Molly166/AegisCodeAgent/internal/config"
 	repocontext "github.com/Molly166/AegisCodeAgent/internal/context"
 	"github.com/Molly166/AegisCodeAgent/internal/gitdiff"
+	"github.com/Molly166/AegisCodeAgent/internal/githubreport"
 	"github.com/Molly166/AegisCodeAgent/internal/report"
 	"github.com/Molly166/AegisCodeAgent/internal/review"
 	"github.com/Molly166/AegisCodeAgent/internal/verifier"
 )
 
-const version = "0.5.0"
+const (
+	version            = "0.6.0"
+	maxReviewJSONBytes = 32 * 1024 * 1024
+)
 
 func main() {
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
@@ -36,6 +41,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 	switch arguments[0] {
 	case "review":
 		return runReview(ctx, arguments[1:], stdout, stderr)
+	case "github":
+		return runGitHub(arguments[1:], stdout, stderr)
 	case "version", "--version", "-version":
 		fmt.Fprintf(stdout, "aegis %s\n", version)
 		return 0
@@ -47,6 +54,81 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		writeRootUsage(stderr)
 		return 2
 	}
+}
+
+func runGitHub(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("github", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	reportPath := flags.String("report", "review.json", "path to an Aegis JSON review report")
+	htmlOutput := flags.String("html-output", "review.html", "path for the self-contained HTML evidence report")
+	summaryPath := flags.String("summary", os.Getenv("GITHUB_STEP_SUMMARY"), "path to the GitHub step summary file")
+	annotations := flags.Bool("annotations", true, "emit GitHub workflow annotations to stdout")
+	failOnValue := flags.String("fail-on", "p1", "merge gate threshold: p0, p1, p2, p3, or none")
+	failOnIncomplete := flags.Bool("fail-on-incomplete", true, "fail the merge gate when a requested review stage is partial or failed")
+	maxAnnotations := flags.Int("max-annotations", githubreport.DefaultMaxAnnotations, "maximum line annotations emitted per run")
+	artifactName := flags.String("artifact-name", "aegis-review-report", "artifact name referenced by the GitHub summary")
+	flags.Usage = func() { writeGitHubUsage(stderr, flags) }
+	if err := flags.Parse(arguments); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintf(stderr, "github does not accept positional arguments: %v\n", flags.Args())
+		return 2
+	}
+	failOn, err := githubreport.ParsePriority(*failOnValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 2
+	}
+	if *maxAnnotations <= 0 {
+		fmt.Fprintln(stderr, "aegis: max-annotations must be positive")
+		return 2
+	}
+	if strings.TrimSpace(*summaryPath) == "" {
+		fmt.Fprintln(stderr, "aegis: summary path is required; pass --summary or run inside GitHub Actions")
+		return 2
+	}
+
+	reviewReport, err := loadJSONReport(*reportPath)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 1
+	}
+	htmlReport, err := report.RenderHTML(reviewReport)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 1
+	}
+	if err := writeOutput(*htmlOutput, htmlReport, stdout); err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 1
+	}
+	summary := githubreport.RenderSummary(reviewReport, githubreport.Options{
+		FailOn: failOn, FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName,
+	})
+	if err := appendOutput(*summaryPath, summary); err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 1
+	}
+	if *annotations {
+		if _, err := stdout.Write(githubreport.RenderAnnotations(reviewReport, *maxAnnotations)); err != nil {
+			fmt.Fprintf(stderr, "aegis: write GitHub annotations: %v\n", err)
+			return 1
+		}
+	}
+	gate := githubreport.Evaluate(reviewReport, failOn, *failOnIncomplete)
+	if gate.Blocked {
+		if gate.Incomplete {
+			fmt.Fprintln(stderr, "aegis: GitHub merge gate blocked because the review is incomplete")
+		} else {
+			fmt.Fprintf(stderr, "aegis: GitHub merge gate blocked by %s finding(s)\n", strings.ToUpper(string(gate.Highest)))
+		}
+		return 1
+	}
+	return 0
 }
 
 func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer) int {
@@ -70,7 +152,7 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	flags.SetOutput(stderr)
 	configurationPath := flags.String("config", configPath, "path to an Aegis JSON config file")
 	repository := flags.String("repo", ".", "path to the Git repository")
-	base := flags.String("base", "main", "base Git revision")
+	base := flags.String("base", "master", "base Git revision")
 	head := flags.String("head", "HEAD", "head Git revision")
 	format := flags.String("format", report.FormatHTML, "report format: html, markdown, or json")
 	outputPath := flags.String("output", "-", "output file path, or - for stdout")
@@ -477,14 +559,70 @@ func writeOutput(path string, content []byte, stdout io.Writer) error {
 	return nil
 }
 
+func appendOutput(path string, content []byte) error {
+	cleanPath := filepath.Clean(path)
+	file, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open GitHub summary %q: %w", cleanPath, err)
+	}
+	defer file.Close()
+	if _, err := file.Write(content); err != nil {
+		return fmt.Errorf("write GitHub summary %q: %w", cleanPath, err)
+	}
+	return nil
+}
+
+func loadJSONReport(path string) (review.ReviewReport, error) {
+	file, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		return review.ReviewReport{}, fmt.Errorf("open JSON report %q: %w", path, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return review.ReviewReport{}, fmt.Errorf("inspect JSON report %q: %w", path, err)
+	}
+	if !info.Mode().IsRegular() || info.Size() > maxReviewJSONBytes {
+		return review.ReviewReport{}, fmt.Errorf("JSON report %q must be a regular file no larger than %d bytes", path, maxReviewJSONBytes)
+	}
+	decoder := json.NewDecoder(io.LimitReader(file, maxReviewJSONBytes+1))
+	decoder.DisallowUnknownFields()
+	var result review.ReviewReport
+	if err := decoder.Decode(&result); err != nil {
+		return review.ReviewReport{}, fmt.Errorf("decode JSON report %q: %w", path, err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		if err == nil {
+			err = errors.New("multiple JSON values are not allowed")
+		}
+		return review.ReviewReport{}, fmt.Errorf("decode JSON report %q: %w", path, err)
+	}
+	if result.SchemaVersion != review.SchemaVersion {
+		return review.ReviewReport{}, fmt.Errorf("JSON report schema %q is incompatible with %q", result.SchemaVersion, review.SchemaVersion)
+	}
+	return result, nil
+}
+
 func writeRootUsage(output io.Writer) {
 	fmt.Fprintln(output, "AegisCodeAgent — evidence-driven code review for Git changes")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Usage:")
 	fmt.Fprintln(output, "  aegis review [flags]")
+	fmt.Fprintln(output, "  aegis github [flags]")
 	fmt.Fprintln(output, "  aegis version")
 	fmt.Fprintln(output)
-	fmt.Fprintln(output, "Run 'aegis review --help' for review flags.")
+	fmt.Fprintln(output, "Run 'aegis review --help' or 'aegis github --help' for command flags.")
+}
+
+func writeGitHubUsage(output io.Writer, flags *flag.FlagSet) {
+	fmt.Fprintln(output, "Publish an Aegis JSON report as GitHub Summary, annotations, HTML, and a merge gate.")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Usage:")
+	fmt.Fprintln(output, "  aegis github [flags]")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Flags:")
+	flags.PrintDefaults()
 }
 
 func writeReviewUsage(output io.Writer, flags *flag.FlagSet) {

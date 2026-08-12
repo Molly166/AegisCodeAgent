@@ -5,8 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"time"
+
+	"github.com/Molly166/AegisCodeAgent/internal/secureenv"
 )
 
 const defaultOutputLimit = 2 * 1024 * 1024
@@ -35,6 +38,7 @@ func (r OSRunner) Run(ctx context.Context, command Command) (Execution, error) {
 	stderr := newLimitedBuffer(limit)
 	process := exec.CommandContext(ctx, command.Name, command.Arguments...)
 	process.Dir = command.Directory
+	process.Env = secureenv.ForUntrustedChild(os.Environ())
 	process.Stdout = stdout
 	process.Stderr = stderr
 
