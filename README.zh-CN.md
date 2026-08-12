@@ -5,7 +5,7 @@
 ![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
 AegisCodeAgent 是一个使用 Go 开发、自动运行在 GitHub Pull Request 上的代码审核 Agent。它将确定性分析、仓库级上下文、大模型推理和独立验证组合起来，只把具有可靠证据的问题发布到最终审核结果中。
 
@@ -124,6 +124,8 @@ git push -u origin feature/my-change
 ```
 
 创建从 `feature/my-change` 到 `master` 的 Pull Request。`opened` 事件会启动 Aegis；此后每次 Push 都会产生 `synchronize` 事件、触发新审核并取消已经过期的运行。
+
+纯文档 Pull Request 仍然会触发 Workflow，并生成 Summary 和报告 Artifact。当本次比较不包含受支持的源码变更时，Aegis 会跳过 DeepSeek 推理与 Verifier，避免不必要的模型调用，同时保留确定性检查。
 
 ### 第四步：查看审核结果
 
