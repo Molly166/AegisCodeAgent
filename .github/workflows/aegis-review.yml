@@ -24,7 +24,7 @@ jobs:
       # Build the reviewer from the trusted PR base, never from code that is
       # proposing changes to Aegis itself.
       - name: Check out trusted reviewer
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.base.sha }}
           path: reviewer
@@ -35,7 +35,7 @@ jobs:
       # contains both base and head commits. The next step moves the worktree to
       # the exact head so Aegis can enforce its evidence-integrity guard.
       - name: Check out pull request
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: target
           fetch-depth: 0
@@ -51,7 +51,7 @@ jobs:
           test -z "$(git -C target status --porcelain=v1 --untracked-files=all)"
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: reviewer/go.mod
           cache-dependency-path: reviewer/go.mod
@@ -140,7 +140,7 @@ jobs:
 
       - name: Upload complete Aegis evidence report
         if: always() && hashFiles('artifacts/**') != ''
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.AEGIS_ARTIFACT_NAME }}
           path: artifacts/

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -82,6 +83,68 @@ func TestRunnerExecutesToolLoopAndProducesUnverifiedCandidate(t *testing.T) {
 	assistant := provider.requests[1].Messages[2]
 	if assistant.ReasoningContent == "" || len(assistant.ToolCalls) != 1 {
 		t.Fatalf("thinking tool turn was not preserved for the provider: %+v", assistant)
+	}
+}
+
+func TestRunnerRejectsExcessToolCallsAndContinues(t *testing.T) {
+	calls := make([]ToolCall, 0, maxExecutedToolCallsPerStep+1)
+	for index := 0; index < maxExecutedToolCallsPerStep+1; index++ {
+		calls = append(calls, ToolCall{ID: fmt.Sprintf("call-%d", index+1), Name: "read_file_lines", Arguments: json.RawMessage(`{"path":"worker.go","start_line":1,"end_line":1}`)})
+	}
+	provider := &scriptedProvider{responses: []CompletionResponse{
+		{FinishReason: "tool_calls", Message: Message{Role: "assistant", ToolCalls: calls}},
+		{FinishReason: "stop", Message: Message{Role: "assistant", Content: `{"summary":"No credible candidate defects found.","candidates":[]}`}},
+	}}
+	tools := &countingTools{}
+	result, err := NewRunner(provider, tools).Run(context.Background(), Config{
+		Repository: "/tmp/repo", MaxSteps: 2, MaxCandidates: 2,
+		MaxInputBytes: 32 * 1024, MaxOutputTokens: 1024,
+	}, fixtureRunInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != review.AgentComplete || tools.executed != maxExecutedToolCallsPerStep || len(result.ToolCalls) != len(calls) {
+		t.Fatalf("unexpected bounded tool result: result=%+v executed=%d", result, tools.executed)
+	}
+	if result.ToolCalls[len(result.ToolCalls)-1].Status != review.AgentToolRejected || !strings.Contains(strings.Join(result.Warnings, " "), "exceeded the execution budget") {
+		t.Fatalf("excess tool call was not audited as rejected: %+v", result)
+	}
+	lastMessage := provider.requests[1].Messages[len(provider.requests[1].Messages)-1]
+	if lastMessage.Role != "tool" || !strings.Contains(lastMessage.Content, "request this tool again") {
+		t.Fatalf("model did not receive a structured budget response: %+v", lastMessage)
+	}
+}
+
+func TestRunnerSkipsDocumentationOnlyChange(t *testing.T) {
+	provider := &scriptedProvider{}
+	input := fixtureRunInput()
+	input.Files[0].NewPath = "README.md"
+	result, err := NewRunner(provider, nil).Run(context.Background(), Config{
+		Repository: "/tmp/repo", MaxSteps: 2, MaxCandidates: 2,
+		MaxInputBytes: 32 * 1024, MaxOutputTokens: 1024,
+	}, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != review.AgentSkipped || result.Steps != 0 || len(provider.requests) != 0 || !strings.Contains(result.Summary, "no supported source-code changes") {
+		t.Fatalf("unexpected documentation-only result: %+v requests=%d", result, len(provider.requests))
+	}
+}
+
+func TestRunnerFailsClosedOnExtremeToolFanout(t *testing.T) {
+	calls := make([]ToolCall, maxReturnedToolCallsPerStep+1)
+	for index := range calls {
+		calls[index] = ToolCall{ID: fmt.Sprintf("call-%d", index+1), Name: "search_code", Arguments: json.RawMessage(`{}`)}
+	}
+	provider := &scriptedProvider{responses: []CompletionResponse{{
+		FinishReason: "tool_calls", Message: Message{Role: "assistant", ToolCalls: calls},
+	}}}
+	result, err := NewRunner(provider, &countingTools{}).Run(context.Background(), Config{
+		Repository: "/tmp/repo", MaxSteps: 2, MaxCandidates: 2,
+		MaxInputBytes: 32 * 1024, MaxOutputTokens: 1024,
+	}, fixtureRunInput())
+	if err == nil || result.Status != review.AgentFailed || !strings.Contains(err.Error(), "protocol maximum") {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 
@@ -183,6 +246,14 @@ type fakeTools struct{}
 
 func (*fakeTools) Definitions() []ToolDefinition { return nil }
 func (*fakeTools) Execute(context.Context, ToolCall) ToolResult {
+	return ToolResult{Content: `{"ok":true}`, Status: review.AgentToolSucceeded}
+}
+
+type countingTools struct{ executed int }
+
+func (*countingTools) Definitions() []ToolDefinition { return nil }
+func (tools *countingTools) Execute(context.Context, ToolCall) ToolResult {
+	tools.executed++
 	return ToolResult{Content: `{"ok":true}`, Status: review.AgentToolSucceeded}
 }
 
