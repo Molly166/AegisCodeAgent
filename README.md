@@ -5,7 +5,7 @@
 ![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-[English](README.md) | [简体中文](README.zh-CN.md)
+[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
 AegisCodeAgent is a Go-native code-review agent that runs automatically on GitHub pull requests. It combines deterministic analysis, repository-level context, LLM reasoning, and independent verification so that only evidence-bearing findings reach the final review.
 
@@ -124,6 +124,8 @@ git push -u origin feature/my-change
 ```
 
 Open a pull request from `feature/my-change` to `master`. The `opened` event starts Aegis; every later push emits a `synchronize` event, starts a fresh review, and cancels the stale run.
+
+Documentation-only pull requests still trigger the workflow and receive a summary and report artifact. Aegis skips the DeepSeek reasoning and verification stages when the comparison contains no supported source-code changes, avoiding unnecessary model calls without weakening deterministic checks.
 
 ### 4. Read the result
 
