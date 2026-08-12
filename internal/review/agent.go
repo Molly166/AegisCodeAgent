@@ -4,6 +4,7 @@ type AgentStatus string
 
 const (
 	AgentNotRun   AgentStatus = "not_run"
+	AgentSkipped  AgentStatus = "skipped"
 	AgentComplete AgentStatus = "complete"
 	AgentPartial  AgentStatus = "partial"
 	AgentFailed   AgentStatus = "failed"
