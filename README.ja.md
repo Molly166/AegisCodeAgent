@@ -131,10 +131,11 @@ git push -u origin feature/my-change
 
 Pull Request を開き、次の項目を確認します。
 
-1. **Checks → Aegis Code Review**：実行状態と Job Summary。
-2. **Annotations**：変更ファイルと行に紐づく指摘。
-3. **Artifacts → aegis-review-report**：`review.html` と `review.json`。
-4. 最終 Check の結果：マージ可能かどうか。
+1. **Conversation**：Aegis が継続的に更新するレビューコメントと、完全な HTML レポートへのリンク。
+2. **Checks → Aegis Code Review**：実行状態と Job Summary。
+3. **Annotations**：変更ファイルと行に紐づく指摘。
+4. **Artifacts → aegis-review-report**：`review.html` と `review.json`。
+5. 最終 Check の結果：マージ可能かどうか。
 
 | Priority | 意味 | GitHub Annotation | デフォルトでブロック |
 | --- | --- | --- | :---: |
