@@ -1,51 +1,60 @@
 # AegisCodeAgent
 
+[![CI](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml)
+[![Aegis Code Review](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml)
+![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-AegisCodeAgent is a Go-native, evidence-driven agent for pull-request code review. It is being built as an engineering system: deterministic analysis establishes facts, repository context explains impact, an LLM reasons over that evidence, and a verifier filters unsupported findings before publication.
+AegisCodeAgent is a Go-native, evidence-driven agent for pull-request code review. It combines deterministic analysis, repository-aware reasoning, and independent verification, then publishes only evidence-bearing findings directly into GitHub.
 
-The project is currently in **Phase 6: GitHub Actions review integration**. Pull-request updates now trigger a trusted Aegis reviewer automatically. The engine resolves Git revisions safely, runs deterministic Go analyzers, builds a budgeted repository context bundle, executes a bounded DeepSeek reasoning loop when a same-repository secret is available, and adjudicates every Agent candidate through an independent local evidence gate.
+**Current milestone: v0.6 · GitHub-native review pipeline.** Opening or updating a pull request automatically runs Aegis—no standalone server, webhook service, or local process is required.
 
-## What works today
+## Why Aegis
 
-- Compare two Git revisions using three-dot (`merge-base...head`) semantics.
-- Parse modified, added, deleted, renamed, binary, quoted, and Unicode paths.
-- Preserve hunk context and old/new line coordinates for downstream analyzers.
-- Run `go test` and `go vet` by default against affected Go packages.
-- Optionally adapt `staticcheck` and `gosec` machine-readable output.
-- Run analyzers concurrently with independent timeouts and bounded output capture.
-- Filter static diagnostics to added lines, deduplicate them, rank severity, and assign stable fingerprints.
-- Report analyzer status as passed, findings, skipped, unavailable, failed, or timed out.
-- Discover repository packages with `go list` and index declarations with Go AST.
-- Use best-effort `go/types` information for exact call and interface implementation edges.
-- Fall back to confidence-labelled syntax inference when full type information is unavailable.
-- Locate changed functions, methods, types, interfaces, variables, constants, tests, and file-level changes.
-- Rank direct callers, callees, receiver types, related interfaces, and relevant tests.
-- Enforce symbol, snippet, file-size, and total-context budgets with transparent truncation statistics.
-- Call DeepSeek through a provider interface using the current Chat Completions tool-call protocol.
-- Preserve thinking-mode context across tool turns without storing or publishing private reasoning content.
-- Let the model inspect only bounded line ranges and plain-text search results through read-only tools.
-- Require JSON output, validate every candidate locally, reject non-added-line locations, and assign stable fingerprints.
-- Keep Agent candidates separate from deterministic findings and record steps, tools, latency, token usage, and warnings.
-- Load non-secret Agent settings from an explicit JSON config and the API key from the environment or ignored `.env` only.
-- Recheck candidate identity, changed-line membership, repository boundaries, symlinks, and exact source snapshots.
-- Rerun focused `go test` and `go vet` for packages containing structurally valid Go candidates.
-- Correlate diagnostics by overlapping location, compatible category, and shared defect signals instead of title-only matching.
-- Adjudicate every candidate as `verified`, `rejected`, or `inconclusive`; never treat a passing test suite as proof that a hypothesis is false.
-- Link candidates already covered by static findings without duplication, and promote only newly corroborated candidates.
-- Calibrate confidence and cap promoted severity at the strongest deterministic evidence level.
-- Produce a responsive, printable, dependency-free HTML report.
-- Export Markdown for compatibility and versioned JSON for automation.
-- Review pull requests automatically when they are opened, reopened, marked ready, or receive a new commit.
-- Publish P0-P3 GitHub annotations and a native Job Summary; fail the merge gate on P0/P1 by default.
-- Build the reviewer from the trusted PR base commit while analyzing the exact head commit in a separate worktree.
-- Strip credential-shaped environment variables from every repository-controlled Git and analyzer subprocess.
-- Upload the complete HTML and JSON evidence as a GitHub Actions artifact and cancel stale runs after a new push.
-- Run unit and Git integration tests in GitHub Actions.
+- **Evidence first:** `go test`, `go vet`, optional `staticcheck`/`gosec`, exact diff locations, and reproducible diagnostics establish facts before model reasoning.
+- **Repository aware:** Go AST and `go/types` connect changed symbols to callers, callees, interfaces, implementations, and tests under explicit context budgets.
+- **Verified, not guessed:** every model candidate is checked against the real diff and local evidence; unsupported hypotheses never enter the final findings.
+- **GitHub native:** P0-P3 annotations, Job Summary, HTML/JSON artifacts, stale-run cancellation, and a configurable merge gate are built into pull requests.
+- **Secure by default:** the reviewer is built from the trusted base commit; fork reviews receive no secrets, and repository-controlled subprocesses inherit no credential-shaped variables.
+
+## Review pipeline
+
+```text
+Pull request
+    │
+    ▼
+Git diff ──► deterministic analyzers ──► repository context
+                                               │
+                                               ▼
+                                    DeepSeek reasoning agent
+                                               │
+                                               ▼
+                                        evidence verifier
+                                               │
+                                               ▼
+                     GitHub Summary + P0-P3 annotations + HTML artifact
+```
 
 ## Automatic GitHub pull-request review
 
-No local Aegis process is required. The repository includes [`.github/workflows/aegis-review.yml`](.github/workflows/aegis-review.yml). Once this workflow exists on `master`, opening a pull request or pushing a new commit to it automatically starts the `Aegis Code Review` check.
+No local Aegis process is required. [`.github/workflows/aegis-review.yml`](.github/workflows/aegis-review.yml) starts the `Aegis Code Review` check when a pull request is opened, reopened, marked ready, or receives a new commit.
+
+### Trigger a live review
+
+```bash
+git switch master
+git pull --ff-only origin master
+git switch -c docs/verify-aegis-trigger
+
+# Edit README.md or any source file.
+git add README.md README.zh-CN.md
+git commit -m "docs: clarify automatic review workflow"
+git push -u origin docs/verify-aegis-trigger
+```
+
+Open a pull request from `docs/verify-aegis-trigger` into `master`. The PR should show both `CI` and `Aegis Code Review`. Open the Aegis check to inspect its Job Summary and annotations; download `aegis-review-report` for the complete self-contained HTML report. Every later push to the same branch triggers a fresh review and cancels the stale run.
 
 To enable the full DeepSeek + Verifier path, add the key under **Settings → Secrets and variables → Actions → New repository secret**:
 
@@ -62,11 +71,16 @@ Each run publishes:
 - an `aegis-review-report` artifact containing `review.html` and `review.json`;
 - a failed `Aegis Code Review` check when P0/P1 exists or a requested review stage is incomplete.
 
-Priority mapping is deterministic: `critical → P0`, `high → P1`, `medium → P2`, and `low/info → P3`. Add `Aegis Code Review` as a required status check in the `master` branch ruleset if P0/P1 findings must block merges. GitHub's existing notification settings handle web and email notifications for failed checks; Aegis does not operate a separate mail service.
+| Aegis priority | Internal severity | GitHub annotation | Blocks by default |
+| --- | --- | --- | :---: |
+| P0 | Critical | Error | Yes |
+| P1 | High | Error | Yes |
+| P2 | Medium | Warning | No |
+| P3 | Low / Info | Notice | No |
+
+Add `Aegis Code Review` as a required status check in the `master` branch ruleset if P0/P1 findings must block merges. GitHub's existing notification settings handle web and email notifications for failed checks; Aegis does not operate a separate mail service.
 
 Security boundary: fork and Dependabot pull requests are untrusted and always run without repository secrets. Same-repository branches are treated as trusted by GitHub for secret access, so restrict write access and require review for changes under `.github/workflows/`. Aegis still builds the review engine from the base commit and strips credential-shaped variables from repository-controlled subprocesses as defense in depth.
-
-Bootstrap note: the pull request that first introduces this workflow is reviewed by the older trusted binary from `master` in static-only mode. Its proposed binary is used only to publish the already-produced JSON and receives no secret. Manually inspect that first run and the workflow diff; after it is merged, later pull requests use the complete trusted v0.6+ pipeline from the base commit.
 
 ## Local CLI (optional)
 

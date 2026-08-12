@@ -1,51 +1,60 @@
 # AegisCodeAgent
 
+[![CI](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml)
+[![Aegis Code Review](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml)
+![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-AegisCodeAgent 是一个使用 Go 开发、以证据为基础的 Pull Request 代码审核 Agent。它并非简单包装大模型 API，而是按照完整工程系统建设：确定性分析负责建立事实，仓库上下文引擎负责解释影响范围，大模型基于证据进行推理，Verifier 则在发布前过滤缺少依据的问题。
+AegisCodeAgent 是一个使用 Go 开发、以证据为基础的 Pull Request 代码审核 Agent。它将确定性分析、仓库级推理和独立验证组合起来，只把具有证据的问题直接发布到 GitHub。
 
-项目目前处于**阶段六：GitHub Actions 审核集成**。Pull Request 创建或更新后会自动触发可信版本的 Aegis Reviewer。审核引擎能够安全解析 Git Revision，运行确定性 Go 分析器，构建受预算约束的仓库上下文，在同仓库 Secret 可用时执行 DeepSeek 推理循环，并通过独立的本地证据门审核每个 Agent 候选问题。
+**当前里程碑：v0.6 · GitHub 原生审核流水线。** 创建或更新 Pull Request 就能自动运行 Aegis，不需要部署独立服务器、Webhook 服务或本地常驻进程。
 
-## 当前能力
+## 为什么选择 Aegis
 
-- 使用三点比较语义（`merge-base...head`）对比两个 Git Revision。
-- 解析修改、新增、删除、重命名、二进制、带引号以及 Unicode 路径。
-- 保留 Diff Hunk 上下文与新旧行号，供下游分析器使用。
-- 默认针对受影响的 Go Package 运行 `go test` 和 `go vet`。
-- 支持接入 `staticcheck` 和 `gosec` 的机器可读输出。
-- 并发运行分析器，并为每个分析器设置独立超时和输出大小限制。
-- 将静态诊断过滤到新增代码行，完成去重、严重程度排序和稳定指纹生成。
-- 区分 passed、findings、skipped、unavailable、failed 和 timed out 等分析状态。
-- 使用 `go list` 发现仓库 Package，并通过 Go AST 索引代码声明。
-- 尽可能使用 `go/types` 建立准确的调用边和接口实现关系。
-- 完整类型信息不可用时，降级到带置信度标记的语法推断。
-- 定位发生变更的函数、方法、类型、接口、变量、常量、测试和文件级变更。
-- 对直接调用者、被调用者、接收者类型、相关接口和相关测试进行排序。
-- 对符号数量、代码片段、文件大小和上下文总量实施预算，并记录截断统计。
-- 通过 Provider 接口和 Chat Completions Tool Call 协议调用 DeepSeek。
-- 在工具调用之间保留 Thinking Mode 上下文，同时不保存或发布模型的私有推理过程。
-- 仅允许模型通过只读工具检查受限行范围和纯文本代码搜索结果。
-- 要求模型输出 JSON，在本地验证全部候选问题，拒绝不位于新增代码行的问题并分配稳定指纹。
-- 将 Agent 候选与确定性 Findings 分离，记录推理步数、工具调用、延迟、Token 使用量和警告。
-- 从显式 JSON 配置读取非敏感设置，仅从环境变量或被忽略的 `.env` 文件读取 API Key。
-- 重新校验候选身份、变更行归属、仓库边界、符号链接和真实源码快照。
-- 针对包含合法 Go 候选问题的 Package 重新运行聚焦 `go test` 和 `go vet`。
-- 通过位置重叠、类别兼容和共同缺陷信号关联诊断，而不是只比较问题标题。
-- 将每个候选判定为 `verified`、`rejected` 或 `inconclusive`；不会把测试通过错误地视为候选一定不成立。
-- 对已经被静态分析覆盖的候选建立关联而不重复发布，只晋升获得新证据支持的候选。
-- 校准候选置信度，并将晋升问题的严重程度限制在最强确定性证据的等级以内。
-- 生成响应式、可打印、无外部依赖的 HTML 审核报告。
-- 支持导出兼容性 Markdown 和用于自动化的版本化 JSON。
-- 在 Pull Request 创建、重新打开、转为 Ready 或 Push 新 Commit 时自动执行审核。
-- 发布 P0-P3 GitHub 行级 Annotation 和原生 Job Summary；默认使用 P0/P1 作为合并门禁。
-- 从可信的 PR Base Commit 构建 Reviewer，同时在独立 Worktree 中审核准确的 Head Commit。
-- 从所有由仓库代码控制的 Git 和分析器子进程中移除凭证类环境变量。
-- 上传包含完整 HTML/JSON 证据的 GitHub Actions Artifact，并在新 Push 后取消过期审核。
-- 通过 GitHub Actions 运行单元测试和 Git 集成测试。
+- **证据优先：**先使用 `go test`、`go vet`、可选的 `staticcheck`/`gosec`、准确的 Diff 位置和可复现诊断建立事实，再进入模型推理。
+- **理解仓库：**通过 Go AST 和 `go/types`，在明确的上下文预算内关联变更符号、调用者、被调用者、接口、实现和测试。
+- **验证而非猜测：**每个模型候选都必须通过真实 Diff 和本地证据检查，缺少支持的假设不会进入最终 Findings。
+- **GitHub 原生体验：**在 Pull Request 中提供 P0-P3 Annotation、Job Summary、HTML/JSON Artifact、过期任务取消和可配置的合并门禁。
+- **默认安全：**从可信 Base Commit 构建 Reviewer；Fork 审核不获取 Secret，仓库代码控制的子进程也不会继承凭证类环境变量。
+
+## 审核流水线
+
+```text
+Pull Request
+    │
+    ▼
+Git Diff ──► 确定性分析器 ──► 仓库上下文
+                                  │
+                                  ▼
+                          DeepSeek Reasoning Agent
+                                  │
+                                  ▼
+                              证据 Verifier
+                                  │
+                                  ▼
+                 GitHub Summary + P0-P3 Annotation + HTML Artifact
+```
 
 ## GitHub Pull Request 自动审核
 
-使用者不需要在本地启动 Aegis。仓库已经包含 [`.github/workflows/aegis-review.yml`](.github/workflows/aegis-review.yml)。该 Workflow 合入 `master` 后，创建 Pull Request 或继续 Push 新 Commit 都会自动启动 `Aegis Code Review` Check。
+使用者不需要在本地启动 Aegis。[`.github/workflows/aegis-review.yml`](.github/workflows/aegis-review.yml) 会在 Pull Request 创建、重新打开、转为 Ready 或收到新 Commit 时启动 `Aegis Code Review` Check。
+
+### 触发一次真实审核
+
+```bash
+git switch master
+git pull --ff-only origin master
+git switch -c docs/verify-aegis-trigger
+
+# 修改 README.md 或任意源文件。
+git add README.md README.zh-CN.md
+git commit -m "docs: clarify automatic review workflow"
+git push -u origin docs/verify-aegis-trigger
+```
+
+创建从 `docs/verify-aegis-trigger` 到 `master` 的 Pull Request。PR 中应该同时出现 `CI` 与 `Aegis Code Review`。打开 Aegis Check 可以查看 Job Summary 和 Annotation；下载 `aegis-review-report` 可以查看完整的自包含 HTML 报告。此后每次向该分支 Push 都会触发新审核，并取消已经过期的运行。
 
 如需启用完整的 DeepSeek + Verifier 链路，在 **Settings → Secrets and variables → Actions → New repository secret** 中添加：
 
@@ -62,11 +71,16 @@ DEEPSEEK_API_KEY=<你的密钥>
 - 名为 `aegis-review-report` 的 Artifact，其中包含 `review.html` 和 `review.json`；
 - 当存在 P0/P1，或者必要审核阶段未完整执行时，将 `Aegis Code Review` Check 标记为失败。
 
-优先级映射是确定性的：`critical → P0`、`high → P1`、`medium → P2`、`low/info → P3`。如果需要让 P0/P1 真正阻止合并，请在 `master` Branch Ruleset 中把 `Aegis Code Review` 配置为 Required Status Check。GitHub 自身的通知设置会负责失败 Check 的站内与邮件通知；Aegis 不额外运行邮件服务。
+| Aegis 优先级 | 内部严重程度 | GitHub Annotation | 默认阻断 |
+| --- | --- | --- | :---: |
+| P0 | Critical | Error | 是 |
+| P1 | High | Error | 是 |
+| P2 | Medium | Warning | 否 |
+| P3 | Low / Info | Notice | 否 |
+
+如果需要让 P0/P1 真正阻止合并，请在 `master` Branch Ruleset 中把 `Aegis Code Review` 配置为 Required Status Check。GitHub 自身的通知设置会负责失败 Check 的站内与邮件通知；Aegis 不额外运行邮件服务。
 
 安全边界：Fork 与 Dependabot Pull Request 属于不可信输入，始终不会获得仓库 Secret。GitHub 会把同仓库分支视为可以访问 Secret 的可信来源，因此应严格限制仓库写权限，并强制审核 `.github/workflows/` 下的改动。作为纵深防御，Aegis 仍会从 Base Commit 构建评审引擎，并从仓库代码控制的子进程环境中移除凭证类变量。
-
-首次上线说明：首次引入该 Workflow 的 Pull Request 会由 `master` 中较旧但可信的二进制执行纯静态审核，PR 中的新二进制只负责发布已经生成的 JSON，且不会获得 Secret。第一次运行仍需人工检查 Workflow Diff 和审核结果；合入以后，后续 Pull Request 才会完整使用来自 Base Commit 的可信 v0.6+ 流水线。
 
 ## 本地 CLI（可选）
 
