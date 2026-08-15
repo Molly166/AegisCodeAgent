@@ -1,0 +1,143 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/nr-002",
+    "base": "master",
+    "head": "eval/nr-002",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "7fa69ae7bb686d1742572787593497fd38054c25"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-9D5A087E30",
+        "fingerprint": "9d5a087e305fbc4d9ef1025ddfcf4a44346211a81d79f43f744106b456416022",
+        "title": "Plugin metadata may expose a host credential",
+        "description": "The candidate reaches a serialization helper, but the repository snapshot cannot establish whether redaction occurs at runtime.",
+        "severity": "critical",
+        "category": "security",
+        "location": {
+          "path": "internal/plugin/metadata.go",
+          "start_line": 81,
+          "end_line": 81
+        },
+        "evidence": "Bounded hypothesis evidence for NR-002.",
+        "suggestion": "Request focused human review.",
+        "confidence": 0.62,
+        "verification": [
+          "Inspect the unresolved semantic boundary."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 1,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-9D5A087E30",
+        "title": "Plugin metadata may expose a host credential",
+        "severity": "critical",
+        "location": {
+          "path": "internal/plugin/metadata.go",
+          "start_line": 81,
+          "end_line": 81
+        },
+        "verdict": "needs_review",
+        "reason": "The candidate reaches a serialization helper, but the repository snapshot cannot establish whether redaction occurs at runtime.",
+        "calibrated_confidence": 0.62,
+        "checks": [
+          {
+            "name": "independent-corroboration",
+            "status": "warning",
+            "detail": "insufficient deterministic evidence"
+          }
+        ],
+        "matched_finding_ids": [],
+        "promoted": false
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/plugin/metadata.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": []
+}

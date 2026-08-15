@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/qual-006",
+    "base": "master",
+    "head": "eval/qual-006",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "fd0932f5491d6e84701b55a74736360dc198f759"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-162E15A5AE",
+        "fingerprint": "162e15a5ae0e4142784a84ed7290696701c4ffc5dca204e9c1fb22e1229a6461",
+        "title": "Fixed sleep makes the worker test timing-dependent",
+        "description": "The test assumes completion within an arbitrary wall-clock delay.",
+        "severity": "medium",
+        "category": "testing",
+        "location": {
+          "path": "internal/worker/worker_test.go",
+          "start_line": 92,
+          "end_line": 92
+        },
+        "evidence": "Versioned golden evidence for QUAL-006.",
+        "suggestion": "Synchronize on an observable event with a bounded timeout.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-162E15A5AE",
+        "title": "Fixed sleep makes the worker test timing-dependent",
+        "severity": "medium",
+        "location": {
+          "path": "internal/worker/worker_test.go",
+          "start_line": 92,
+          "end_line": 92
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-QUAL-006"
+        ],
+        "finding_id": "EVAL-QUAL-006",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/worker/worker_test.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-QUAL-006",
+      "rule_id": "AGENT-TEST-002",
+      "title": "Fixed sleep makes the worker test timing-dependent",
+      "description": "The test assumes completion within an arbitrary wall-clock delay.",
+      "severity": "medium",
+      "category": "testing",
+      "location": {
+        "path": "internal/worker/worker_test.go",
+        "start_line": 92,
+        "end_line": 92
+      },
+      "evidence": "Versioned golden evidence for QUAL-006.",
+      "suggestion": "Synchronize on an observable event with a bounded timeout.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "039a85ffed2a9820834386a15f98545d9c7bb757f7a8a54af7c9bb4958a622da"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": "v2",
+  "id": "CLEAN-002",
+  "title": "Parameterized SQL query",
+  "description": "User input is bound as a parameter and must not trigger an injection finding.",
+  "kind": "clean",
+  "layer": "static",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "clean",
+    "security",
+    "sql"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "passed",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

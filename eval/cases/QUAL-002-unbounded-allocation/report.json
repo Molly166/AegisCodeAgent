@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/qual-002",
+    "base": "master",
+    "head": "eval/qual-002",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "466428567509b5587742b17fcc33386d07e82ba7"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-2E2C04F913",
+        "fingerprint": "2e2c04f91383db11ae3ab8e9fc37a44d0807a09290d561999a8c6218ca0aaa7d",
+        "title": "Batch size can trigger an unbounded allocation",
+        "description": "The new slice capacity is copied directly from a request-controlled count.",
+        "severity": "medium",
+        "category": "performance",
+        "location": {
+          "path": "internal/batch/collect.go",
+          "start_line": 36,
+          "end_line": 36
+        },
+        "evidence": "Versioned golden evidence for QUAL-002.",
+        "suggestion": "Apply a documented maximum before allocating the batch buffer.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-2E2C04F913",
+        "title": "Batch size can trigger an unbounded allocation",
+        "severity": "medium",
+        "location": {
+          "path": "internal/batch/collect.go",
+          "start_line": 36,
+          "end_line": 36
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-QUAL-002"
+        ],
+        "finding_id": "EVAL-QUAL-002",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/batch/collect.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-QUAL-002",
+      "rule_id": "AGENT-PERF-001",
+      "title": "Batch size can trigger an unbounded allocation",
+      "description": "The new slice capacity is copied directly from a request-controlled count.",
+      "severity": "medium",
+      "category": "performance",
+      "location": {
+        "path": "internal/batch/collect.go",
+        "start_line": 36,
+        "end_line": 36
+      },
+      "evidence": "Versioned golden evidence for QUAL-002.",
+      "suggestion": "Apply a documented maximum before allocating the batch buffer.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "c796ba0ea2ad7df9d29ba62493e0c74544434e583c4f13b39307ba3ec27e934c"
+    }
+  ]
+}

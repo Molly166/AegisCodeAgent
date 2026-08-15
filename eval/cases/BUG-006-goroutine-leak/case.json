@@ -1,0 +1,29 @@
+{
+  "schema_version": "v2",
+  "id": "BUG-006",
+  "title": "Worker goroutine ignores cancellation",
+  "description": "A retry loop can outlive the request because it never selects on context cancellation.",
+  "kind": "bug",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "bug",
+    "concurrency",
+    "p1",
+    "resource-leak"
+  ],
+  "report": "report.json",
+  "expected_findings": [
+    {
+      "severity": "high",
+      "category": "bug",
+      "path": "internal/worker/retry.go",
+      "start_line": 44,
+      "rule_id": "AGENT-GOROUTINE-001",
+      "title_contains": "Retry goroutine can survive request cancellation"
+    }
+  ],
+  "expected_gate": "blocked",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

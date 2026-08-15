@@ -50,7 +50,7 @@ func Run(configuration Config) (HarnessReport, error) {
 	}
 
 	result := HarnessReport{
-		SchemaVersion: ReportSchemaVersion, GeneratedAt: time.Now().UTC(), Corpus: filepath.ToSlash(filepath.Clean(configuration.Corpus)),
+		SchemaVersion: ReportSchemaVersion, Mode: ModeGoldenReplay, GeneratedAt: time.Now().UTC(), Corpus: filepath.ToSlash(filepath.Clean(configuration.Corpus)),
 		Gate: configuration.Gate, Cases: make([]CaseResult, 0, len(casePaths)),
 	}
 	seenIDs := make(map[string]struct{})
@@ -63,7 +63,7 @@ func Run(configuration Config) (HarnessReport, error) {
 			return HarnessReport{}, fmt.Errorf("duplicate eval case ID %q", spec.ID)
 		}
 		seenIDs[spec.ID] = struct{}{}
-		if err := validateCase(spec); err != nil {
+		if err := ValidateCase(spec); err != nil {
 			return HarnessReport{}, fmt.Errorf("validate %s: %w", path, err)
 		}
 		reportPath, err := resolveCaseReport(root, filepath.Dir(path), spec.Report)
@@ -113,12 +113,20 @@ func loadCase(path string) (CaseSpec, error) {
 	return spec, nil
 }
 
-func validateCase(spec CaseSpec) error {
+// ValidateCase verifies the schema and mutually exclusive expectations of one
+// corpus case before it is evaluated or generated as a checked-in artifact.
+func ValidateCase(spec CaseSpec) error {
 	if spec.SchemaVersion != CaseSchemaVersion {
 		return fmt.Errorf("schema %q is incompatible with %q", spec.SchemaVersion, CaseSchemaVersion)
 	}
-	if strings.TrimSpace(spec.ID) == "" || strings.TrimSpace(spec.Title) == "" {
-		return errors.New("id and title are required")
+	if strings.TrimSpace(spec.ID) == "" || strings.TrimSpace(spec.Title) == "" || strings.TrimSpace(spec.Description) == "" {
+		return errors.New("id, title, and description are required")
+	}
+	if !validCaseKind(spec.Kind) || !validEvaluationLayer(spec.Layer) || !validProvenance(spec.Provenance) {
+		return errors.New("kind, layer, and provenance must use supported values")
+	}
+	if len(spec.Tags) == 0 {
+		return errors.New("at least one tag is required")
 	}
 	if strings.TrimSpace(spec.Report) == "" {
 		return errors.New("report is required")
@@ -129,9 +137,28 @@ func validateCase(spec CaseSpec) error {
 	if spec.MaxUnexpectedFindings < 0 || spec.ExpectedNeedsReview < 0 {
 		return errors.New("max_unexpected_findings and expected_needs_review cannot be negative")
 	}
+	switch spec.Kind {
+	case CaseKindBug:
+		if len(spec.ExpectedFindings) == 0 || spec.ExpectedNeedsReview != 0 {
+			return errors.New("bug cases require expected findings and cannot expect unresolved hypotheses")
+		}
+	case CaseKindClean:
+		if len(spec.ExpectedFindings) != 0 || spec.ExpectedNeedsReview != 0 || spec.ExpectedGate != GatePassed {
+			return errors.New("clean cases cannot expect findings, unresolved hypotheses, or a blocked gate")
+		}
+	case CaseKindNeedsReview:
+		if len(spec.ExpectedFindings) != 0 || spec.ExpectedNeedsReview == 0 {
+			return errors.New("needs_review cases require unresolved hypotheses and no promoted findings")
+		}
+	case CaseKindResilience:
+		if len(spec.ExpectedFindings) != 0 || spec.ExpectedNeedsReview != 0 {
+			return errors.New("resilience cases exercise stage policy without findings or hypotheses")
+		}
+	}
 	for index, finding := range spec.ExpectedFindings {
-		if !validSeverity(finding.Severity) || !safeEvalPath(finding.Path) || finding.StartLine < 0 {
-			return fmt.Errorf("expected_findings[%d] requires a valid severity and path", index)
+		if !validSeverity(finding.Severity) || !validCategory(finding.Category) || !safeEvalPath(finding.Path) || finding.StartLine <= 0 ||
+			strings.TrimSpace(finding.RuleID) == "" || strings.TrimSpace(finding.TitleContains) == "" {
+			return fmt.Errorf("expected_findings[%d] requires severity, category, safe path, positive line, rule_id, and title_contains", index)
 		}
 	}
 	return nil
@@ -204,6 +231,7 @@ func decodeBoundedJSON(path string, maximum int64, destination any) error {
 func evaluateCase(spec CaseSpec, report review.ReviewReport, reportPath string, gateOptions githubreport.Options) CaseResult {
 	result := CaseResult{
 		ID: spec.ID, Title: spec.Title, Description: spec.Description, Tags: append([]string(nil), spec.Tags...),
+		Kind: spec.Kind, Layer: spec.Layer, Provenance: spec.Provenance,
 		ExpectedGate: spec.ExpectedGate, Matches: []FindingMatch{}, Missed: []ExpectedFinding{}, Unexpected: []review.Finding{},
 		ExpectedNeedsReview: spec.ExpectedNeedsReview, MaxUnexpectedFindings: spec.MaxUnexpectedFindings, ReportPath: reportPath,
 		AgentTokens: report.Agent.Usage.TotalTokens, AgentDurationMillis: report.Agent.DurationMillis,
@@ -277,11 +305,18 @@ func calculateMetrics(cases []CaseResult) Metrics {
 		if result.GateCorrect {
 			metrics.GateCorrect++
 		}
-		if len(result.Matches)+len(result.Missed) == 0 && result.ExpectedGate == GatePassed {
+		switch result.Kind {
+		case CaseKindBug:
+			metrics.BugCases++
+		case CaseKindClean:
 			metrics.CleanCases++
 			if result.ActualGate == GateBlocked {
 				metrics.FalseBlocks++
 			}
+		case CaseKindNeedsReview:
+			metrics.NeedsReviewCases++
+		case CaseKindResilience:
+			metrics.ResilienceCases++
 		}
 		for _, match := range result.Matches {
 			incrementPriorityMetric(&metrics, match.Expected.Severity, true)
@@ -297,6 +332,8 @@ func calculateMetrics(cases []CaseResult) Metrics {
 	}
 	metrics.P0Recall = ratio(metrics.P0Matched, metrics.P0Expected)
 	metrics.P1Recall = ratio(metrics.P1Matched, metrics.P1Expected)
+	metrics.P2Recall = ratio(metrics.P2Matched, metrics.P2Expected)
+	metrics.P3Recall = ratio(metrics.P3Matched, metrics.P3Expected)
 	metrics.GateAccuracy = ratio(metrics.GateCorrect, metrics.Cases)
 	metrics.FalseBlockRate = ratio(metrics.FalseBlocks, metrics.CleanCases)
 	return metrics
@@ -319,6 +356,16 @@ func incrementPriorityMetric(metrics *Metrics, severity review.Severity, matched
 		if matched {
 			metrics.P1Matched++
 		}
+	case githubreport.PriorityP2:
+		metrics.P2Expected++
+		if matched {
+			metrics.P2Matched++
+		}
+	case githubreport.PriorityP3:
+		metrics.P3Expected++
+		if matched {
+			metrics.P3Matched++
+		}
 	}
 }
 
@@ -336,4 +383,35 @@ func validSeverity(severity review.Severity) bool {
 	default:
 		return false
 	}
+}
+
+func validCategory(category review.Category) bool {
+	switch category {
+	case review.CategoryBug, review.CategorySecurity, review.CategoryPerformance, review.CategoryMaintainability, review.CategoryTesting:
+		return true
+	default:
+		return false
+	}
+}
+
+func validCaseKind(kind CaseKind) bool {
+	switch kind {
+	case CaseKindBug, CaseKindClean, CaseKindNeedsReview, CaseKindResilience:
+		return true
+	default:
+		return false
+	}
+}
+
+func validEvaluationLayer(layer EvaluationLayer) bool {
+	switch layer {
+	case LayerStatic, LayerSemantic, LayerAgent, LayerGate, LayerContext, LayerMixed:
+		return true
+	default:
+		return false
+	}
+}
+
+func validProvenance(provenance CaseProvenance) bool {
+	return provenance == ProvenanceRegression || provenance == ProvenanceCuratedSynthetic
 }

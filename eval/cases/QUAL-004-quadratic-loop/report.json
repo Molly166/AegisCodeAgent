@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/qual-004",
+    "base": "master",
+    "head": "eval/qual-004",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "6dc05ca0d2f62fec15d532fef25c33d318e7edf6"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-CF394BD530",
+        "fingerprint": "cf394bd530f2e573899ed52bfd9977f99d7e0d789ba1866c1a8dbf8cfc0f93cf",
+        "title": "Nested matching loop scales quadratically",
+        "description": "Every changed symbol scans the full repository symbol list.",
+        "severity": "medium",
+        "category": "performance",
+        "location": {
+          "path": "internal/diff/match.go",
+          "start_line": 103,
+          "end_line": 103
+        },
+        "evidence": "Versioned golden evidence for QUAL-004.",
+        "suggestion": "Build an index keyed by symbol identity before matching.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-CF394BD530",
+        "title": "Nested matching loop scales quadratically",
+        "severity": "medium",
+        "location": {
+          "path": "internal/diff/match.go",
+          "start_line": 103,
+          "end_line": 103
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-QUAL-004"
+        ],
+        "finding_id": "EVAL-QUAL-004",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/diff/match.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-QUAL-004",
+      "rule_id": "AGENT-PERF-002",
+      "title": "Nested matching loop scales quadratically",
+      "description": "Every changed symbol scans the full repository symbol list.",
+      "severity": "medium",
+      "category": "performance",
+      "location": {
+        "path": "internal/diff/match.go",
+        "start_line": 103,
+        "end_line": 103
+      },
+      "evidence": "Versioned golden evidence for QUAL-004.",
+      "suggestion": "Build an index keyed by symbol identity before matching.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "e8672b5fc73bde04a24c45ab51d7ff1a2c769ce2b56d9c05d20bbdc7fe1568ce"
+    }
+  ]
+}

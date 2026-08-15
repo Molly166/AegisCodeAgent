@@ -9,7 +9,7 @@
 
 AegisCodeAgent は、GitHub の Pull Request 上で自動実行される Go ネイティブのコードレビュー Agent です。決定論的解析、リポジトリレベルのコンテキスト、LLM による推論、独立した検証を組み合わせ、根拠のある指摘だけを最終レビューに反映します。
 
-> **現在のマイルストーン：v0.7。** Replay Eval Harness、セマンティック検証、明示的な Needs Review Gate、PR の変更意図コンテキスト、4 種類の Analyzer を実行する GitHub Pipeline を実装しました。Go を主な対象とし、最初の推論 Provider として DeepSeek を採用しています。
+> **現在のマイルストーン：v0.7。** 50 Case の Golden Regression Corpus、Replay Eval Harness、セマンティック検証、明示的な Needs Review Gate、PR の変更意図コンテキスト、4 種類の Analyzer を実行する GitHub Pipeline を実装しました。Go を主な対象とし、最初の推論 Provider として DeepSeek を採用しています。
 
 ## Pull Request を作成すると何が起きますか？
 
@@ -55,7 +55,7 @@ Pull Request の作成または更新
 | Reasoning Agent | DeepSeek が読み取り専用 Tool で制限された根拠を確認し、構造化された候補を提案 | 未検証 Candidates | `internal/agent/` |
 | Verifier V2 | Candidate の識別子と位置を検証し、Focused Check とソース認識型 Semantic Rule を実行 | Verified／Needs Review／Rejected の判定 | `internal/verifier/` |
 | Publisher | Severity を P0-P3 に変換し、マージ閾値を適用して GitHub 出力と完全なレポートを生成 | Summary、Annotation、HTML/JSON | `internal/githubreport/`、`internal/report/` |
-| Eval Harness | Version 管理された Bug/Clean Report を Replay し、Finding と Gate の品質を計測 | Precision、Recall、F1、P0/P1 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/cases/` |
+| Eval Harness | Provenance と分布 Contract を持つ 50 件の Bug/Clean/Needs Review/Resilience Report を Replay | Precision、Recall、F1、P0-P3 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/catalog.json`、`eval/cases/` |
 | Credential 境界 | リポジトリ側が制御する子プロセスから Credential 形式の環境変数を除去 | Sanitized child environment | `internal/secureenv/` |
 
 ### Finding のライフサイクル
@@ -251,7 +251,7 @@ go build ./cmd/aegis
 - リポジトリコンテキストエンジン。
 - 境界を設けた DeepSeek Reasoning Loop。
 - Semantic Evidence と Needs Review を備えた Verifier V2。
-- Replay Eval Harness と Bug/Clean の初期回帰 Corpus。
+- Replay Eval Harness と再生成可能な 50 Case Golden Regression Corpus。
 - PR の変更意図と Repository Guidance の Context。
 - go test、go vet、staticcheck、gosec をすべて実行する Workflow。
 - 自己完結型 HTML エビデンスレポート。
@@ -259,7 +259,7 @@ go build ./cmd/aegis
 
 今後：
 
-- 初期 Corpus を独立 Label 付きの統計的に有用な Benchmark へ拡張。
+- Golden Replay 指標とは分離して、独立 Label の Live Pipeline 評価、反復 Trial、分散、信頼区間を追加。
 - Live Model 比較、反復 Trial、Confidence Interval の追加。
 - 再利用可能な GitHub Action の Package 化と Release 配布。
 - 追加の Model Provider と本番向け Observability。

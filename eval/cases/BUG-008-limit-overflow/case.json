@@ -1,0 +1,29 @@
+{
+  "schema_version": "v2",
+  "id": "BUG-008",
+  "title": "Integer overflow bypasses quota enforcement",
+  "description": "Multiplication before a quota comparison can wrap and admit an oversized request.",
+  "kind": "bug",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "bug",
+    "boundary",
+    "p1",
+    "overflow"
+  ],
+  "report": "report.json",
+  "expected_findings": [
+    {
+      "severity": "high",
+      "category": "bug",
+      "path": "internal/quota/check.go",
+      "start_line": 67,
+      "rule_id": "AGENT-BOUND-001",
+      "title_contains": "Overflow can bypass request quota validation"
+    }
+  ],
+  "expected_gate": "blocked",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

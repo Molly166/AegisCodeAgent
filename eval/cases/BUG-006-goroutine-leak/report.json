@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/bug-006",
+    "base": "master",
+    "head": "eval/bug-006",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "9b8ad1c4e3492a917ea5e7b3684ba1ab2b866277"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-DF9944BAD4",
+        "fingerprint": "df9944bad49ccc8c4dcb028f84fe3caf1979a79bcf4391398096104fa64335c8",
+        "title": "Retry goroutine can survive request cancellation",
+        "description": "The loop waits only on a timer and never observes the parent context.",
+        "severity": "high",
+        "category": "bug",
+        "location": {
+          "path": "internal/worker/retry.go",
+          "start_line": 44,
+          "end_line": 44
+        },
+        "evidence": "Versioned golden evidence for BUG-006.",
+        "suggestion": "Select on the retry timer and context cancellation on every iteration.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-DF9944BAD4",
+        "title": "Retry goroutine can survive request cancellation",
+        "severity": "high",
+        "location": {
+          "path": "internal/worker/retry.go",
+          "start_line": 44,
+          "end_line": 44
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-BUG-006"
+        ],
+        "finding_id": "EVAL-BUG-006",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/worker/retry.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-BUG-006",
+      "rule_id": "AGENT-GOROUTINE-001",
+      "title": "Retry goroutine can survive request cancellation",
+      "description": "The loop waits only on a timer and never observes the parent context.",
+      "severity": "high",
+      "category": "bug",
+      "location": {
+        "path": "internal/worker/retry.go",
+        "start_line": 44,
+        "end_line": 44
+      },
+      "evidence": "Versioned golden evidence for BUG-006.",
+      "suggestion": "Select on the retry timer and context cancellation on every iteration.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "ffeb51e2955d50d20aed27a1d0376bf2d314abf0efc7dc968ae905477d79957f"
+    }
+  ]
+}

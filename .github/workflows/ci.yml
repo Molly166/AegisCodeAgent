@@ -30,6 +30,11 @@ jobs:
       - name: Run tests with race detector
         run: go test -race -coverprofile=coverage.out ./...
 
+      - name: Verify generated eval corpus artifacts
+        run: |
+          go run ./tools/evalcorpus --catalog ./eval/catalog.json --output ./eval/cases
+          test -z "$(git status --porcelain -- eval/cases)"
+
       - name: Run replay eval regression corpus
         run: go run ./cmd/aegis eval --corpus ./eval/cases --format json --output /tmp/aegis-eval.json
 

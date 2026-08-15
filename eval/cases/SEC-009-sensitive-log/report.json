@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/sec-009",
+    "base": "master",
+    "head": "eval/sec-009",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "80ed9897e4f8aae2d8bd6cb7965cd0e211c52a90"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-F698EBF4B9",
+        "fingerprint": "f698ebf4b98c5a35310e9cdc6352675c86e75dce3bf1892addc527d0725ef869",
+        "title": "Authentication token exposed through request logging",
+        "description": "A bearer token is forwarded to a logging helper without redaction.",
+        "severity": "critical",
+        "category": "security",
+        "location": {
+          "path": "internal/auth/session.go",
+          "start_line": 88,
+          "end_line": 88
+        },
+        "evidence": "Versioned golden evidence for SEC-009.",
+        "suggestion": "Log a stable non-secret identifier and redact credential fields at the boundary.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-F698EBF4B9",
+        "title": "Authentication token exposed through request logging",
+        "severity": "critical",
+        "location": {
+          "path": "internal/auth/session.go",
+          "start_line": 88,
+          "end_line": 88
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-SEC-009"
+        ],
+        "finding_id": "EVAL-SEC-009",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/auth/session.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-SEC-009",
+      "rule_id": "AGENT-SEC-LOG-001",
+      "title": "Authentication token exposed through request logging",
+      "description": "A bearer token is forwarded to a logging helper without redaction.",
+      "severity": "critical",
+      "category": "security",
+      "location": {
+        "path": "internal/auth/session.go",
+        "start_line": 88,
+        "end_line": 88
+      },
+      "evidence": "Versioned golden evidence for SEC-009.",
+      "suggestion": "Log a stable non-secret identifier and redact credential fields at the boundary.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "d47efd807660c7d5588ef06d9f905fc121d0fba0c11a730f7a90228939c16c79"
+    }
+  ]
+}

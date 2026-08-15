@@ -1,0 +1,20 @@
+{
+  "schema_version": "v2",
+  "id": "NR-001",
+  "title": "Possible authorization boundary bypass",
+  "description": "A P0 hypothesis without independent evidence must remain visible and block pending review.",
+  "kind": "needs_review",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "needs-review",
+    "security",
+    "p0",
+    "authorization"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "blocked",
+  "expected_needs_review": 1,
+  "max_unexpected_findings": 0
+}

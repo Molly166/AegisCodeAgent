@@ -22,7 +22,8 @@ func TestHarnessMeasuresFindingsAndGate(t *testing.T) {
 	completeReport(&clean)
 	writeCase(t, corpus, "SEC-001", critical, CaseSpec{
 		SchemaVersion: CaseSchemaVersion, ID: "SEC-001", Title: "Credential flow", Report: "report.json",
-		Tags: []string{"security", "p0"}, ExpectedGate: GateBlocked,
+		Description: "Credential reaches an untrusted child process.", Kind: CaseKindBug, Layer: LayerSemantic,
+		Provenance: ProvenanceRegression, Tags: []string{"security", "p0"}, ExpectedGate: GateBlocked,
 		ExpectedFindings: []ExpectedFinding{{
 			Severity: review.SeverityCritical, Category: review.CategorySecurity, Path: "main.go", StartLine: 11,
 			RuleID: "AEGIS-SEC-001", TitleContains: "credential",
@@ -30,7 +31,8 @@ func TestHarnessMeasuresFindingsAndGate(t *testing.T) {
 	})
 	writeCase(t, corpus, "CLEAN-001", clean, CaseSpec{
 		SchemaVersion: CaseSchemaVersion, ID: "CLEAN-001", Title: "Documentation only", Report: "report.json",
-		Tags: []string{"clean"}, ExpectedGate: GatePassed, ExpectedFindings: []ExpectedFinding{},
+		Description: "Documentation change contains no executable risk.", Kind: CaseKindClean, Layer: LayerContext,
+		Provenance: ProvenanceCuratedSynthetic, Tags: []string{"clean"}, ExpectedGate: GatePassed, ExpectedFindings: []ExpectedFinding{},
 	})
 
 	result, err := Run(Config{Corpus: corpus, Gate: githubreport.Options{
@@ -42,7 +44,7 @@ func TestHarnessMeasuresFindingsAndGate(t *testing.T) {
 	if result.Metrics.Cases != 2 || result.Metrics.PassedCases != 2 || result.Metrics.Precision != 1 || result.Metrics.Recall != 1 || result.Metrics.GateAccuracy != 1 {
 		t.Fatalf("unexpected eval metrics: %+v", result.Metrics)
 	}
-	if result.Metrics.P0Expected != 1 || result.Metrics.P0Matched != 1 || result.Metrics.FalseBlockRate != 0 {
+	if result.Metrics.P0Expected != 1 || result.Metrics.P0Matched != 1 || result.Metrics.FalseBlockRate != 0 || result.Metrics.BugCases != 1 || result.Metrics.CleanCases != 1 {
 		t.Fatalf("priority or clean-case metrics are incorrect: %+v", result.Metrics)
 	}
 	html, err := Render(FormatHTML, result)
@@ -89,6 +91,48 @@ func TestUnexpectedNeedsReviewFailsCleanCaseEvenWhenGateIsRelaxed(t *testing.T) 
 	}, report, "report.json", githubreport.Options{FailOn: githubreport.PriorityP1, FailOnNeedsReview: githubreport.PriorityNone})
 	if result.Passed || !result.GateCorrect || result.NeedsReview != 1 {
 		t.Fatalf("unexpected unresolved hypothesis was treated as clean: %+v", result)
+	}
+}
+
+func TestCheckedInCorpusHasRequiredDistribution(t *testing.T) {
+	corpus := filepath.Join("..", "..", "eval", "cases")
+	result, err := Run(Config{Corpus: corpus, Gate: githubreport.Options{
+		FailOn: githubreport.PriorityP1, FailOnNeedsReview: githubreport.PriorityP0, FailOnIncomplete: true,
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.SchemaVersion != ReportSchemaVersion || result.Mode != ModeGoldenReplay {
+		t.Fatalf("checked-in corpus report identity changed: schema=%q mode=%q", result.SchemaVersion, result.Mode)
+	}
+	metrics := result.Metrics
+	if metrics.Cases != 50 || metrics.PassedCases != 50 || metrics.BugCases != 27 || metrics.CleanCases != 15 || metrics.NeedsReviewCases != 5 || metrics.ResilienceCases != 3 {
+		t.Fatalf("checked-in corpus composition changed unexpectedly: %+v", metrics)
+	}
+	if metrics.P0Expected != 9 || metrics.P1Expected != 9 || metrics.P2Expected != 6 || metrics.P3Expected != 3 {
+		t.Fatalf("checked-in priority distribution changed unexpectedly: %+v", metrics)
+	}
+	if metrics.ExpectedFindings != 27 || metrics.UnresolvedHypotheses != 5 || metrics.GateCorrect != 50 || metrics.FalseBlocks != 0 {
+		t.Fatalf("checked-in corpus quality contract failed: %+v", metrics)
+	}
+
+	layers := make(map[EvaluationLayer]int)
+	provenance := make(map[CaseProvenance]int)
+	blocked := 0
+	for _, item := range result.Cases {
+		layers[item.Layer]++
+		provenance[item.Provenance]++
+		if item.ExpectedGate == GateBlocked {
+			blocked++
+		}
+	}
+	for _, layer := range []EvaluationLayer{LayerStatic, LayerSemantic, LayerAgent, LayerGate, LayerContext, LayerMixed} {
+		if layers[layer] == 0 {
+			t.Errorf("checked-in corpus does not exercise %q", layer)
+		}
+	}
+	if provenance[ProvenanceRegression] != 4 || provenance[ProvenanceCuratedSynthetic] != 46 || blocked != 22 {
+		t.Fatalf("checked-in provenance or gate distribution changed: provenance=%v blocked=%d", provenance, blocked)
 	}
 }
 

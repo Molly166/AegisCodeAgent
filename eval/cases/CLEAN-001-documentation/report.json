@@ -1,24 +1,25 @@
 {
   "schema_version": "v6",
-  "generated_at": "2026-08-15T00:00:00Z",
+  "generated_at": "2026-08-16T00:00:00Z",
   "comparison": {
-    "repository": "AegisCodeAgent",
+    "repository": "eval-fixture/clean-001",
     "base": "master",
-    "head": "docs/readme",
-    "base_commit": "base",
-    "head_commit": "head"
+    "head": "eval/clean-001",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "980be0ec1393d5bfe8ee5e979e82437b5af5a001"
   },
   "analysis": {
     "status": "complete",
-    "completed_stages": ["diff", "static-analysis"],
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
     "tools": []
   },
   "context": {
     "status": "complete",
     "change_intent": {
-      "source": "github_pull_request",
-      "title": "Improve README",
-      "labels": ["documentation"],
+      "labels": [],
       "linked_issues": [],
       "repository_guidance": [],
       "truncated": false
@@ -27,25 +28,36 @@
     "changed_symbols": [],
     "related_symbols": [],
     "relations": [],
-    "stats": {},
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
     "truncated": false,
     "warnings": []
   },
   "agent": {
-    "status": "complete",
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
-    "thinking": true,
-    "steps": 1,
-    "duration_ms": 500,
-    "usage": {"prompt_tokens": 300, "completion_tokens": 40, "total_tokens": 340},
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
     "candidates": [],
     "tool_calls": [],
     "warnings": []
   },
   "verification": {
     "status": "complete",
-    "duration_ms": 10,
+    "duration_ms": 0,
     "summary": {
       "candidates": 0,
       "verified": 0,
@@ -61,8 +73,8 @@
   },
   "summary": {
     "changed_files": 1,
-    "additions": 4,
-    "deletions": 1,
+    "additions": 1,
+    "deletions": 0,
     "findings": 0,
     "critical": 0,
     "high": 0,
@@ -75,7 +87,10 @@
       "new_path": "README.md",
       "status": "modified",
       "binary": false,
-      "stats": {"additions": 4, "deletions": 1},
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
       "hunks": []
     }
   ],

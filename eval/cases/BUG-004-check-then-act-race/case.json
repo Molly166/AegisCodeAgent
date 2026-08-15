@@ -1,0 +1,29 @@
+{
+  "schema_version": "v2",
+  "id": "BUG-004",
+  "title": "Check-then-act sequence permits duplicate execution",
+  "description": "Two requests can observe the same pending state and both start the job.",
+  "kind": "bug",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "bug",
+    "concurrency",
+    "p1",
+    "state-machine"
+  ],
+  "report": "report.json",
+  "expected_findings": [
+    {
+      "severity": "high",
+      "category": "bug",
+      "path": "internal/jobs/start.go",
+      "start_line": 94,
+      "rule_id": "AGENT-CONC-001",
+      "title_contains": "Non-atomic job transition allows duplicate execution"
+    }
+  ],
+  "expected_gate": "blocked",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

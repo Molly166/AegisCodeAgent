@@ -1,0 +1,19 @@
+{
+  "schema_version": "v2",
+  "id": "CLEAN-010",
+  "title": "Quota arithmetic validates operands before multiplication",
+  "description": "Bounds are checked before arithmetic, preventing overflow and quota bypass.",
+  "kind": "clean",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "clean",
+    "boundary",
+    "overflow"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "passed",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

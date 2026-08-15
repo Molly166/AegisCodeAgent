@@ -9,7 +9,7 @@
 
 AegisCodeAgent es un agente de revisión de código nativo de Go que se ejecuta automáticamente en los Pull Requests de GitHub. Combina análisis determinista, contexto a nivel de repositorio, razonamiento con LLM y verificación independiente para que solo los hallazgos respaldados por evidencias lleguen a la revisión final.
 
-> **Hito actual: v0.7.** Aegis incorpora un Eval Harness de replay, verificación semántica, un gate explícito para Needs Review, contexto de intención del PR y un Pipeline de GitHub con cuatro analizadores. Sigue centrado en Go y utiliza DeepSeek como primer proveedor de razonamiento.
+> **Hito actual: v0.7.** Aegis incorpora un Golden Regression Corpus de 50 casos, un Eval Harness de replay, verificación semántica, un gate explícito para Needs Review, contexto de intención del PR y un Pipeline de GitHub con cuatro analizadores. Sigue centrado en Go y utiliza DeepSeek como primer proveedor de razonamiento.
 
 ## ¿Qué ocurre al abrir un Pull Request?
 
@@ -55,7 +55,7 @@ El sistema se divide en etapas con entradas y salidas explícitas:
 | Reasoning Agent | Permitir que DeepSeek inspeccione evidencias acotadas mediante herramientas de solo lectura y proponga candidatos estructurados | Candidatos sin verificar | `internal/agent/` |
 | Verifier V2 | Validar identidad y ubicación, repetir comprobaciones focalizadas y ejecutar reglas semánticas sensibles al código | Veredictos Verified/Needs Review/Rejected | `internal/verifier/` |
 | Publisher | Convertir severidades a P0-P3, aplicar el umbral de fusión y generar las salidas de GitHub y los informes completos | Summary, Annotations, HTML/JSON | `internal/githubreport/`, `internal/report/` |
-| Eval Harness | Reproducir informes Bug/Clean versionados y medir Findings y comportamiento del Gate | Precision, Recall, F1, P0/P1 Recall, Gate Accuracy, False Block Rate | `internal/eval/`, `eval/cases/` |
+| Eval Harness | Reproducir 50 informes Bug/Clean/Needs Review/resiliencia con contratos de procedencia y distribución | Precision, Recall, F1, P0-P3 Recall, Gate Accuracy, False Block Rate | `internal/eval/`, `eval/catalog.json`, `eval/cases/` |
 | Límite de credenciales | Eliminar variables con forma de credencial de los subprocesos controlados por el repositorio | Entorno de subprocesos saneado | `internal/secureenv/` |
 
 ### Ciclo de vida de un Finding
@@ -251,7 +251,7 @@ Completado:
 - Motor de contexto del repositorio.
 - Bucle de razonamiento DeepSeek acotado.
 - Verifier V2 con evidencias semánticas y Needs Review explícito.
-- Eval Harness de replay y Corpus inicial Bug/Clean.
+- Eval Harness de replay y Golden Regression Corpus reproducible de 50 casos.
 - Contexto de intención del PR y reglas del repositorio.
 - Workflow completo con go test, go vet, staticcheck y gosec.
 - Informe HTML de evidencias autocontenido.
@@ -259,7 +259,7 @@ Completado:
 
 Siguiente:
 
-- Ampliar el Corpus inicial a un Benchmark con etiquetado independiente y valor estadístico.
+- Añadir evaluaciones independientes del Pipeline real, ensayos repetidos, varianza e intervalos de confianza, separados de las métricas Golden Replay.
 - Añadir comparación de modelos Live, repeticiones e intervalos de confianza.
 - Empaquetado como GitHub Action reutilizable y distribución de Releases.
 - Proveedores de modelos adicionales y Observability para producción.

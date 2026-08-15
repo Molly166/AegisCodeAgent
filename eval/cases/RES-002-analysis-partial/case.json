@@ -1,0 +1,19 @@
+{
+  "schema_version": "v2",
+  "id": "RES-002",
+  "title": "Incomplete deterministic analysis fails closed",
+  "description": "A partial analyzer run must block even when no P0/P1 finding was produced.",
+  "kind": "resilience",
+  "layer": "gate",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "resilience",
+    "gate",
+    "analysis-partial"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "blocked",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

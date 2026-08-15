@@ -9,7 +9,7 @@
 
 AegisCodeAgent 是一个使用 Go 开发、自动运行在 GitHub Pull Request 上的代码审核 Agent。它将确定性分析、仓库级上下文、大模型推理和独立验证组合起来，只把具有可靠证据的问题发布到最终审核结果中。
 
-> **当前里程碑：v0.7。** Aegis 已具备 Replay Eval Harness、语义型验证、显式 Needs Review 门禁、PR 变更意图上下文，以及启用四类分析器的 GitHub 流水线。目前主要面向 Go 项目，并首先接入 DeepSeek 作为推理模型。
+> **当前里程碑：v0.7。** Aegis 已具备 50 Case Golden Regression Corpus、Replay Eval Harness、语义型验证、显式 Needs Review 门禁、PR 变更意图上下文，以及启用四类分析器的 GitHub 流水线。目前主要面向 Go 项目，并首先接入 DeepSeek 作为推理模型。
 
 ## 创建 Pull Request 后会发生什么？
 
@@ -55,7 +55,7 @@ Pull Request 创建或更新
 | Reasoning Agent | 让 DeepSeek 通过只读工具检查受限证据并生成结构化候选 | 未验证 Candidates | `internal/agent/` |
 | Verifier V2 | 校验身份与位置，重跑聚焦检查，执行源码感知的语义规则并关联独立证据 | Verified/Needs Review/Rejected 结论 | `internal/verifier/` |
 | 发布层 | 映射 P0-P3、执行合并阈值、渲染 GitHub 输出和完整报告 | Summary、Annotation、HTML/JSON | `internal/githubreport/`、`internal/report/` |
-| Eval Harness | Replay 版本化 Bug/Clean 报告，匹配期望并评估 Finding 与门禁行为 | Precision、Recall、F1、P0/P1 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/cases/` |
+| Eval Harness | Replay 50 个带来源与分布契约的 Bug/Clean/Needs Review/韧性报告 | Precision、Recall、F1、P0-P3 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/catalog.json`、`eval/cases/` |
 | 凭证边界 | 从仓库代码控制的子进程中移除凭证类环境变量 | 安全的子进程环境 | `internal/secureenv/` |
 
 ### 一个 Finding 如何进入最终报告
@@ -251,7 +251,7 @@ go build ./cmd/aegis
 - 仓库上下文引擎；
 - 有边界的 DeepSeek Reasoning Loop；
 - 支持语义证据和显式 Needs Review 的 Verifier V2；
-- Replay Eval Harness 与首批 Bug/Clean 回归语料；
+- Replay Eval Harness 与可重复生成的 50 Case Golden Regression Corpus；
 - PR 变更意图和仓库规范上下文；
 - GitHub Workflow 全量运行 go test、go vet、staticcheck 和 gosec；
 - 自包含 HTML 证据报告；
@@ -259,7 +259,7 @@ go build ./cmd/aegis
 
 下一阶段：
 
-- 将种子语料扩充为具有独立标注和统计意义的基准集；
+- 在 Golden Replay 指标之外单独建设独立标注的真实 Pipeline 评测，加入重复试验、方差与置信区间；
 - 增加实时模型对比、重复试验和置信区间；
 - 封装可复用 GitHub Action 并提供 Release 分发；
 - 接入更多模型 Provider 和生产可观测性。

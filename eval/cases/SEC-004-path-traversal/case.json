@@ -1,0 +1,29 @@
+{
+  "schema_version": "v2",
+  "id": "SEC-004",
+  "title": "Untrusted path escapes the configured workspace",
+  "description": "A variable file path without a root-boundary check is a blocking security defect.",
+  "kind": "bug",
+  "layer": "static",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "security",
+    "gosec",
+    "p0",
+    "path-traversal"
+  ],
+  "report": "report.json",
+  "expected_findings": [
+    {
+      "severity": "critical",
+      "category": "security",
+      "path": "internal/artifact/read.go",
+      "start_line": 74,
+      "rule_id": "G304",
+      "title_contains": "Potential file inclusion outside artifact root"
+    }
+  ],
+  "expected_gate": "blocked",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

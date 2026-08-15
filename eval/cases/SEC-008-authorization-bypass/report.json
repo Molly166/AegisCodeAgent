@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/sec-008",
+    "base": "master",
+    "head": "eval/sec-008",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "31c5f2e5fd8c5558c31cf20002ac40773a714ca3"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-C4F17E681F",
+        "fingerprint": "c4f17e681f340c02b7080eb7cbf2d8d6aabddf753e588d23e46ed44c4db41439",
+        "title": "Administrative delete path bypasses authorization guard",
+        "description": "The new handler reaches a privileged mutation without calling the repository authorization guard.",
+        "severity": "critical",
+        "category": "security",
+        "location": {
+          "path": "internal/admin/delete.go",
+          "start_line": 63,
+          "end_line": 63
+        },
+        "evidence": "Versioned golden evidence for SEC-008.",
+        "suggestion": "Apply the shared authorization middleware and add a negative-permission test.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-C4F17E681F",
+        "title": "Administrative delete path bypasses authorization guard",
+        "severity": "critical",
+        "location": {
+          "path": "internal/admin/delete.go",
+          "start_line": 63,
+          "end_line": 63
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-SEC-008"
+        ],
+        "finding_id": "EVAL-SEC-008",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/admin/delete.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-SEC-008",
+      "rule_id": "AGENT-AUTH-001",
+      "title": "Administrative delete path bypasses authorization guard",
+      "description": "The new handler reaches a privileged mutation without calling the repository authorization guard.",
+      "severity": "critical",
+      "category": "security",
+      "location": {
+        "path": "internal/admin/delete.go",
+        "start_line": 63,
+        "end_line": 63
+      },
+      "evidence": "Versioned golden evidence for SEC-008.",
+      "suggestion": "Apply the shared authorization middleware and add a negative-permission test.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "a0d5ccf711f1c6b11e4c332f3fe8c2c1bc65c29ee68859ed948a70fd73f61786"
+    }
+  ]
+}

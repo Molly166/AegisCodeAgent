@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/bug-005",
+    "base": "master",
+    "head": "eval/bug-005",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "cb76885f2ae8bc63d54dbf3cae749d7562d44880"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-E2B2E1F5A8",
+        "fingerprint": "e2b2e1f5a8045c5bb605c2cefffb89bcae32cf976f2a8e74763e977265d33f6a",
+        "title": "Failed order update leaves a partial transaction",
+        "description": "The new error return bypasses the rollback path after the first mutation.",
+        "severity": "high",
+        "category": "bug",
+        "location": {
+          "path": "internal/store/order.go",
+          "start_line": 117,
+          "end_line": 117
+        },
+        "evidence": "Versioned golden evidence for BUG-005.",
+        "suggestion": "Defer rollback immediately after begin and commit only after all writes succeed.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-E2B2E1F5A8",
+        "title": "Failed order update leaves a partial transaction",
+        "severity": "high",
+        "location": {
+          "path": "internal/store/order.go",
+          "start_line": 117,
+          "end_line": 117
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-BUG-005"
+        ],
+        "finding_id": "EVAL-BUG-005",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/store/order.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-BUG-005",
+      "rule_id": "AGENT-TXN-001",
+      "title": "Failed order update leaves a partial transaction",
+      "description": "The new error return bypasses the rollback path after the first mutation.",
+      "severity": "high",
+      "category": "bug",
+      "location": {
+        "path": "internal/store/order.go",
+        "start_line": 117,
+        "end_line": 117
+      },
+      "evidence": "Versioned golden evidence for BUG-005.",
+      "suggestion": "Defer rollback immediately after begin and commit only after all writes succeed.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "6cc332faa44b249273a00f81dd1532f81613b64718ccc7b85b00b7fb6bb4d461"
+    }
+  ]
+}
