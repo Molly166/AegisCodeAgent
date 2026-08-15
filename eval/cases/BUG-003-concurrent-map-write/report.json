@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/bug-003",
+    "base": "master",
+    "head": "eval/bug-003",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "d877fbe12638cd3ec3ffe2edf00b7b7ff9d39cb7"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-A89272EB10",
+        "fingerprint": "a89272eb107cceb74788cd72faa8b9f440db2a86ba13107ab254e78958eb83ae",
+        "title": "Concurrent workers mutate an unprotected map",
+        "description": "Two worker paths write the same map without a mutex or ownership boundary.",
+        "severity": "high",
+        "category": "bug",
+        "location": {
+          "path": "internal/worker/state.go",
+          "start_line": 71,
+          "end_line": 71
+        },
+        "evidence": "Versioned golden evidence for BUG-003.",
+        "suggestion": "Serialize ownership or guard all accesses with the same synchronization primitive.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-A89272EB10",
+        "title": "Concurrent workers mutate an unprotected map",
+        "severity": "high",
+        "location": {
+          "path": "internal/worker/state.go",
+          "start_line": 71,
+          "end_line": 71
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-BUG-003"
+        ],
+        "finding_id": "EVAL-BUG-003",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/worker/state.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-BUG-003",
+      "rule_id": "GO-RACE-001",
+      "title": "Concurrent workers mutate an unprotected map",
+      "description": "Two worker paths write the same map without a mutex or ownership boundary.",
+      "severity": "high",
+      "category": "bug",
+      "location": {
+        "path": "internal/worker/state.go",
+        "start_line": 71,
+        "end_line": 71
+      },
+      "evidence": "Versioned golden evidence for BUG-003.",
+      "suggestion": "Serialize ownership or guard all accesses with the same synchronization primitive.",
+      "confidence": 0.95,
+      "source": "verifier:go-test-race",
+      "fingerprint": "b0097e2af9e9ca03513f6eb250d70ec4a7454ee97571008b010b1cc840c6a793"
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/bug-008",
+    "base": "master",
+    "head": "eval/bug-008",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "de960277c15e15575ce02c4722cb7df84d03ac56"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-E7B71CD530",
+        "fingerprint": "e7b71cd530e2e5bea7cb01472a18b60799e11f5f06d8aa2d692ccf2836d7f05b",
+        "title": "Overflow can bypass request quota validation",
+        "description": "The product is computed before validating operands against the maximum quota.",
+        "severity": "high",
+        "category": "bug",
+        "location": {
+          "path": "internal/quota/check.go",
+          "start_line": 67,
+          "end_line": 67
+        },
+        "evidence": "Versioned golden evidence for BUG-008.",
+        "suggestion": "Validate operands before multiplication or use checked arithmetic.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-E7B71CD530",
+        "title": "Overflow can bypass request quota validation",
+        "severity": "high",
+        "location": {
+          "path": "internal/quota/check.go",
+          "start_line": 67,
+          "end_line": 67
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-BUG-008"
+        ],
+        "finding_id": "EVAL-BUG-008",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/quota/check.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-BUG-008",
+      "rule_id": "AGENT-BOUND-001",
+      "title": "Overflow can bypass request quota validation",
+      "description": "The product is computed before validating operands against the maximum quota.",
+      "severity": "high",
+      "category": "bug",
+      "location": {
+        "path": "internal/quota/check.go",
+        "start_line": 67,
+        "end_line": 67
+      },
+      "evidence": "Versioned golden evidence for BUG-008.",
+      "suggestion": "Validate operands before multiplication or use checked arithmetic.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "1a61df0ab396bb220955b3253bb5e4c32f8ac5719de1f217a2bb53f9f6c3dad7"
+    }
+  ]
+}

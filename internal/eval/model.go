@@ -8,8 +8,39 @@ import (
 )
 
 const (
-	CaseSchemaVersion   = "v1"
-	ReportSchemaVersion = "v1"
+	CaseSchemaVersion   = "v2"
+	ReportSchemaVersion = "v2"
+)
+
+type EvaluationMode string
+
+const ModeGoldenReplay EvaluationMode = "golden_replay"
+
+type CaseKind string
+
+const (
+	CaseKindBug         CaseKind = "bug"
+	CaseKindClean       CaseKind = "clean"
+	CaseKindNeedsReview CaseKind = "needs_review"
+	CaseKindResilience  CaseKind = "resilience"
+)
+
+type EvaluationLayer string
+
+const (
+	LayerStatic   EvaluationLayer = "static"
+	LayerSemantic EvaluationLayer = "semantic"
+	LayerAgent    EvaluationLayer = "agent"
+	LayerGate     EvaluationLayer = "gate"
+	LayerContext  EvaluationLayer = "context"
+	LayerMixed    EvaluationLayer = "mixed"
+)
+
+type CaseProvenance string
+
+const (
+	ProvenanceRegression       CaseProvenance = "regression"
+	ProvenanceCuratedSynthetic CaseProvenance = "curated_synthetic"
 )
 
 type ExpectedGate string
@@ -33,6 +64,9 @@ type CaseSpec struct {
 	ID                    string            `json:"id"`
 	Title                 string            `json:"title"`
 	Description           string            `json:"description,omitempty"`
+	Kind                  CaseKind          `json:"kind"`
+	Layer                 EvaluationLayer   `json:"layer"`
+	Provenance            CaseProvenance    `json:"provenance"`
 	Tags                  []string          `json:"tags"`
 	Report                string            `json:"report"`
 	ExpectedFindings      []ExpectedFinding `json:"expected_findings"`
@@ -50,6 +84,9 @@ type CaseResult struct {
 	ID                    string            `json:"id"`
 	Title                 string            `json:"title"`
 	Description           string            `json:"description,omitempty"`
+	Kind                  CaseKind          `json:"kind"`
+	Layer                 EvaluationLayer   `json:"layer"`
+	Provenance            CaseProvenance    `json:"provenance"`
 	Tags                  []string          `json:"tags"`
 	Passed                bool              `json:"passed"`
 	ExpectedGate          ExpectedGate      `json:"expected_gate"`
@@ -83,9 +120,18 @@ type Metrics struct {
 	P1Expected           int     `json:"p1_expected"`
 	P1Matched            int     `json:"p1_matched"`
 	P1Recall             float64 `json:"p1_recall"`
+	P2Expected           int     `json:"p2_expected"`
+	P2Matched            int     `json:"p2_matched"`
+	P2Recall             float64 `json:"p2_recall"`
+	P3Expected           int     `json:"p3_expected"`
+	P3Matched            int     `json:"p3_matched"`
+	P3Recall             float64 `json:"p3_recall"`
 	GateCorrect          int     `json:"gate_correct"`
 	GateAccuracy         float64 `json:"gate_accuracy"`
+	BugCases             int     `json:"bug_cases"`
 	CleanCases           int     `json:"clean_cases"`
+	NeedsReviewCases     int     `json:"needs_review_cases"`
+	ResilienceCases      int     `json:"resilience_cases"`
 	FalseBlocks          int     `json:"false_blocks"`
 	FalseBlockRate       float64 `json:"false_block_rate"`
 	UnresolvedHypotheses int     `json:"unresolved_hypotheses"`
@@ -95,6 +141,7 @@ type Metrics struct {
 
 type HarnessReport struct {
 	SchemaVersion string               `json:"schema_version"`
+	Mode          EvaluationMode       `json:"mode"`
 	GeneratedAt   time.Time            `json:"generated_at"`
 	Corpus        string               `json:"corpus"`
 	Gate          githubreport.Options `json:"gate"`

@@ -113,7 +113,7 @@ const evalHTMLSource = `<!doctype html>
 <body>
 <main>
   <header>
-    <div class="hero"><span class="eyebrow">AegisCodeAgent · Eval Harness</span><h1>Review quality, measured.</h1><p class="subtitle">Replay evaluation of finding recall, precision, merge-gate behavior, unresolved hypotheses, and clean-change false blocks.</p></div>
+    <div class="hero"><span class="eyebrow">AegisCodeAgent · Eval Harness · {{.Mode}}</span><h1>Review quality, measured.</h1><p class="subtitle">Golden replay validation of finding matching, merge-gate behavior, unresolved hypotheses, and clean-change false blocks. Replay metrics are not live-model accuracy claims.</p></div>
     <div class="score"><span class="label">Cases passing</span><strong>{{.Metrics.PassedCases}} / {{.Metrics.Cases}}</strong><span>{{percent .Metrics.GateAccuracy}} gate accuracy</span></div>
   </header>
   <section>
@@ -127,10 +127,18 @@ const evalHTMLSource = `<!doctype html>
       <div class="metric"><span>False block rate</span><strong>{{percent .Metrics.FalseBlockRate}}</strong></div>
     </div>
     <div class="metrics" style="margin-top:18px">
-      <div class="metric"><span>Matched</span><strong>{{.Metrics.MatchedFindings}}</strong></div>
+      <div class="metric"><span>P2 recall</span><strong>{{percent .Metrics.P2Recall}}</strong></div>
+      <div class="metric"><span>P3 recall</span><strong>{{percent .Metrics.P3Recall}}</strong></div>
       <div class="metric"><span>False positives</span><strong>{{.Metrics.FalsePositives}}</strong></div>
       <div class="metric"><span>False negatives</span><strong>{{.Metrics.FalseNegatives}}</strong></div>
       <div class="metric"><span>Needs review</span><strong>{{.Metrics.UnresolvedHypotheses}}</strong></div>
+      <div class="metric"><span>Matched</span><strong>{{.Metrics.MatchedFindings}}</strong></div>
+    </div>
+    <div class="metrics" style="margin-top:18px">
+      <div class="metric"><span>Bug cases</span><strong>{{.Metrics.BugCases}}</strong></div>
+      <div class="metric"><span>Clean cases</span><strong>{{.Metrics.CleanCases}}</strong></div>
+      <div class="metric"><span>Needs-review cases</span><strong>{{.Metrics.NeedsReviewCases}}</strong></div>
+      <div class="metric"><span>Resilience cases</span><strong>{{.Metrics.ResilienceCases}}</strong></div>
       <div class="metric"><span>Agent tokens</span><strong>{{.Metrics.AgentTokens}}</strong></div>
       <div class="metric"><span>Agent duration</span><strong>{{.Metrics.AgentDurationMillis}} ms</strong></div>
     </div>
@@ -141,7 +149,7 @@ const evalHTMLSource = `<!doctype html>
     <div class="cases">
     {{range .Cases}}
       <article class="{{caseClass .Passed}}">
-        <div class="case-head"><div><span class="label">{{.ID}}</span><h3>{{.Title}}</h3><div class="case-meta"><span>gate {{.ExpectedGate}} → {{.ActualGate}}</span><span>{{len .Matches}} matched</span><span>{{len .Missed}} missed</span><span>{{len .Unexpected}} unexpected</span><span>needs review {{.ExpectedNeedsReview}} → {{.NeedsReview}}</span></div></div><span class="badge">{{caseLabel .Passed}}</span></div>
+        <div class="case-head"><div><span class="label">{{.ID}}</span><h3>{{.Title}}</h3><div class="case-meta"><span>{{.Kind}} / {{.Layer}}</span><span>{{.Provenance}}</span><span>gate {{.ExpectedGate}} → {{.ActualGate}}</span><span>{{len .Matches}} matched</span><span>{{len .Missed}} missed</span><span>{{len .Unexpected}} unexpected</span><span>needs review {{.ExpectedNeedsReview}} → {{.NeedsReview}}</span></div></div><span class="badge">{{caseLabel .Passed}}</span></div>
         <div class="case-body">
           {{if .Description}}<p>{{.Description}}</p>{{end}}
           {{if .Matches}}<details><summary class="ok">Matched findings</summary><table><thead><tr><th>Severity</th><th>Location</th><th>Finding</th><th>Rule</th></tr></thead><tbody>{{range .Matches}}<tr><td>{{.Actual.Severity}}</td><td><code>{{location .Actual}}</code></td><td>{{.Actual.Title}}</td><td><code>{{.Actual.RuleID}}</code></td></tr>{{end}}</tbody></table></details>{{end}}
@@ -152,7 +160,7 @@ const evalHTMLSource = `<!doctype html>
     {{end}}
     </div>
   </section>
-  <footer><span>Generated {{.GeneratedAt.Format "2006-01-02 15:04 UTC"}}</span><span>Schema {{.SchemaVersion}} · {{.Corpus}}</span></footer>
+  <footer><span>Generated {{.GeneratedAt.Format "2006-01-02 15:04 UTC"}}</span><span>{{.Mode}} · Schema {{.SchemaVersion}} · {{.Corpus}}</span></footer>
 </main>
 </body>
 </html>`

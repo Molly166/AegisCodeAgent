@@ -1,0 +1,143 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/nr-005",
+    "base": "master",
+    "head": "eval/nr-005",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "04c8e3e74641c7fddcd00d2b1f1970d79fda07e2"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-BF8F094A44",
+        "fingerprint": "bf8f094a44677fa1400350deb11c1359d795383d5e7efd14004b3ab168af58d8",
+        "title": "Response field rename may break older clients",
+        "description": "Repository references were updated, but external consumer compatibility cannot be established from local evidence.",
+        "severity": "low",
+        "category": "maintainability",
+        "location": {
+          "path": "internal/api/response.go",
+          "start_line": 28,
+          "end_line": 28
+        },
+        "evidence": "Bounded hypothesis evidence for NR-005.",
+        "suggestion": "Request focused human review.",
+        "confidence": 0.62,
+        "verification": [
+          "Inspect the unresolved semantic boundary."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 1,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-BF8F094A44",
+        "title": "Response field rename may break older clients",
+        "severity": "low",
+        "location": {
+          "path": "internal/api/response.go",
+          "start_line": 28,
+          "end_line": 28
+        },
+        "verdict": "needs_review",
+        "reason": "Repository references were updated, but external consumer compatibility cannot be established from local evidence.",
+        "calibrated_confidence": 0.62,
+        "checks": [
+          {
+            "name": "independent-corroboration",
+            "status": "warning",
+            "detail": "insufficient deterministic evidence"
+          }
+        ],
+        "matched_finding_ids": [],
+        "promoted": false
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 0,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/api/response.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": []
+}

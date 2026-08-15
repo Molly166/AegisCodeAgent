@@ -1,0 +1,117 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/qual-009",
+    "base": "master",
+    "head": "eval/qual-009",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "da78ea60f90c59cc7956ea63c4f3a0c887f87df0"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 0,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 0,
+    "medium": 0,
+    "low": 1,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/config/options.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-QUAL-009",
+      "rule_id": "AGENT-DOC-001",
+      "title": "Exported gate option lacks behavioral documentation",
+      "description": "The new public option changes merge behavior but has no contract comment.",
+      "severity": "low",
+      "category": "maintainability",
+      "location": {
+        "path": "internal/config/options.go",
+        "start_line": 34,
+        "end_line": 34
+      },
+      "evidence": "Versioned golden evidence for QUAL-009.",
+      "suggestion": "Document defaults, accepted values, and failure semantics.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "bac8ac1c1a28205b5dee4baf3f81c4a54d2b790d696c27087c76300b7bfa00f5"
+    }
+  ]
+}

@@ -1,0 +1,117 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/sec-004",
+    "base": "master",
+    "head": "eval/sec-004",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "a6027e634e035b68e1699df3cbdafe49e8a3119e"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 0,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/artifact/read.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-SEC-004",
+      "rule_id": "G304",
+      "title": "Potential file inclusion outside artifact root",
+      "description": "The opened path can be influenced by an external artifact name.",
+      "severity": "critical",
+      "category": "security",
+      "location": {
+        "path": "internal/artifact/read.go",
+        "start_line": 74,
+        "end_line": 74
+      },
+      "evidence": "Versioned golden evidence for SEC-004.",
+      "suggestion": "Resolve symlinks and prove the final path remains under the trusted root.",
+      "confidence": 0.95,
+      "source": "gosec",
+      "fingerprint": "f81ad8c7b6466977c518aa48b991581a51ffff7b9eddaf43152b68fbbfa378fc"
+    }
+  ]
+}

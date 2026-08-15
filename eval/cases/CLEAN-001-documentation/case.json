@@ -1,9 +1,16 @@
 {
-  "schema_version": "v1",
+  "schema_version": "v2",
   "id": "CLEAN-001",
   "title": "Documentation-only change",
-  "description": "A clean PR should not be blocked or generate false findings.",
-  "tags": ["clean", "documentation"],
+  "description": "Regression proving a documentation-only PR remains clean and unblocked.",
+  "kind": "clean",
+  "layer": "context",
+  "provenance": "regression",
+  "tags": [
+    "clean",
+    "documentation",
+    "regression"
+  ],
   "report": "report.json",
   "expected_findings": [],
   "expected_gate": "passed",

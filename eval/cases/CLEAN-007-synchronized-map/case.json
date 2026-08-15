@@ -1,0 +1,19 @@
+{
+  "schema_version": "v2",
+  "id": "CLEAN-007",
+  "title": "Shared map access protected by one mutex",
+  "description": "All read and write paths use the same lock and should not produce a race hypothesis.",
+  "kind": "clean",
+  "layer": "mixed",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "clean",
+    "concurrency",
+    "mutex"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "passed",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

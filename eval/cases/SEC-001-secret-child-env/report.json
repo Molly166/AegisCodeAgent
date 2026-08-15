@@ -1,24 +1,25 @@
 {
   "schema_version": "v6",
-  "generated_at": "2026-08-15T00:00:00Z",
+  "generated_at": "2026-08-16T00:00:00Z",
   "comparison": {
-    "repository": "AegisCodeAgent",
+    "repository": "eval-fixture/sec-001",
     "base": "master",
-    "head": "test/p0-secret-leak",
-    "base_commit": "3e67848716c25aa8ca824c3f3cc803945f2ec216",
-    "head_commit": "c1369d25c3dcb3f7de8f028c48cab6e398de81c1"
+    "head": "eval/sec-001",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "36e73b6fdda89207240b2682d4ba6a3846a77efe"
   },
   "analysis": {
     "status": "complete",
-    "completed_stages": ["diff", "static-analysis"],
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
     "tools": []
   },
   "context": {
     "status": "complete",
     "change_intent": {
-      "source": "github_pull_request",
-      "title": "P0 gate regression",
-      "labels": ["security"],
+      "labels": [],
       "linked_issues": [],
       "repository_guidance": [],
       "truncated": false
@@ -27,25 +28,36 @@
     "changed_symbols": [],
     "related_symbols": [],
     "relations": [],
-    "stats": {},
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
     "truncated": false,
     "warnings": []
   },
   "agent": {
-    "status": "complete",
-    "provider": "deepseek",
-    "model": "deepseek-v4-flash",
-    "thinking": true,
-    "steps": 2,
-    "duration_ms": 1200,
-    "usage": {"prompt_tokens": 900, "completion_tokens": 180, "total_tokens": 1080},
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
     "candidates": [],
     "tool_calls": [],
     "warnings": []
   },
   "verification": {
     "status": "complete",
-    "duration_ms": 80,
+    "duration_ms": 0,
     "summary": {
       "candidates": 0,
       "verified": 0,
@@ -75,24 +87,31 @@
       "new_path": "cmd/aegis/main.go",
       "status": "modified",
       "binary": false,
-      "stats": {"additions": 1, "deletions": 0},
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
       "hunks": []
     }
   ],
   "findings": [
     {
-      "id": "AEGIS-S-REGRESSION",
+      "id": "EVAL-SEC-001",
       "rule_id": "AEGIS-SEC-001",
       "title": "Sensitive credential propagated to child process environment",
-      "description": "The host credential crosses the untrusted child-process boundary.",
+      "description": "A host credential crosses an explicitly untrusted child-process boundary.",
       "severity": "critical",
       "category": "security",
-      "location": {"path": "cmd/aegis/main.go", "start_line": 41, "end_line": 41},
-      "evidence": "AST data-flow evidence links os.Getenv to process.Env.",
-      "suggestion": "Remove the credential from the child environment.",
-      "confidence": 0.99,
+      "location": {
+        "path": "cmd/aegis/main.go",
+        "start_line": 41,
+        "end_line": 41
+      },
+      "evidence": "Versioned golden evidence for SEC-001.",
+      "suggestion": "Construct the child environment from an allowlist that excludes host credentials.",
+      "confidence": 0.95,
       "source": "semantic:credential-flow",
-      "fingerprint": "sec-001-regression"
+      "fingerprint": "577d098bce379a9abde2f16a6ebcf09d2a0aebacfd340079d3859b467089e3ba"
     }
   ]
 }

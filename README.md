@@ -9,7 +9,7 @@
 
 AegisCodeAgent is a Go-native code-review agent that runs automatically on GitHub pull requests. It combines deterministic analysis, repository-level context, LLM reasoning, and independent verification so that only evidence-bearing findings reach the final review.
 
-> **Current milestone: v0.7.** Aegis now includes a replay Eval Harness, semantic verification, explicit Needs Review gating, PR-intent context, and a four-analyzer GitHub pipeline. It remains Go-focused and uses DeepSeek as its first reasoning provider.
+> **Current milestone: v0.7.** Aegis now includes a 50-case Golden Regression Corpus, replay Eval Harness, semantic verification, explicit Needs Review gating, PR-intent context, and a four-analyzer GitHub pipeline. It remains Go-focused and uses DeepSeek as its first reasoning provider.
 
 ## What happens when you open a pull request?
 
@@ -55,7 +55,7 @@ The system is split into stages with explicit inputs and outputs:
 | Reasoning agent | Let DeepSeek inspect bounded evidence through read-only tools and propose structured candidates | Unverified candidates | `internal/agent/` |
 | Verifier V2 | Validate identity/location, rerun focused checks, execute source-aware semantic rules, and correlate independent evidence | Verified/needs-review/rejected verdicts | `internal/verifier/` |
 | Publisher | Map severity to P0-P3, apply the merge threshold, render GitHub output and full reports | Summary, annotations, HTML/JSON | `internal/githubreport/`, `internal/report/` |
-| Eval Harness | Replay versioned buggy/clean reports, match expectations, and score findings plus gate behavior | Precision, recall, F1, P0/P1 recall, gate accuracy, false-block rate | `internal/eval/`, `eval/cases/` |
+| Eval Harness | Replay 50 versioned Bug/Clean/Needs Review/resilience reports with provenance and distribution contracts | Precision, recall, F1, P0-P3 recall, gate accuracy, false-block rate | `internal/eval/`, `eval/catalog.json`, `eval/cases/` |
 | Credential boundary | Remove credential-shaped variables from repository-controlled subprocesses | Sanitized child environment | `internal/secureenv/` |
 
 ### Finding lifecycle
@@ -251,7 +251,7 @@ Completed:
 - repository context engine;
 - bounded DeepSeek reasoning loop;
 - semantic Verifier V2 with explicit Needs Review outcomes;
-- replay Eval Harness and seed buggy/clean regression corpus;
+- replay Eval Harness and a reproducible 50-case Golden Regression Corpus;
 - PR-intent and repository-guidance context;
 - full go test, go vet, staticcheck, and gosec workflow execution;
 - self-contained HTML evidence report;
@@ -259,7 +259,7 @@ Completed:
 
 Next:
 
-- grow the seed corpus into a statistically useful, independently labeled benchmark;
+- add independently labeled live-pipeline runs, repeated trials, variance, and confidence intervals alongside (not mixed with) golden replay metrics;
 - add live-model comparison, repeated trials, and confidence intervals;
 - reusable GitHub Action packaging and release distribution;
 - additional model providers and production observability.

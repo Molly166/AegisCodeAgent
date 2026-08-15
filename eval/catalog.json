@@ -1,0 +1,390 @@
+{
+  "schema_version": "v1",
+  "cases": [
+    {
+      "id": "SEC-001", "directory": "SEC-001-secret-child-env",
+      "title": "Credential forwarded to an untrusted child process",
+      "description": "Regression for the P0 credential-isolation defect that Verifier V1 left inconclusive.",
+      "kind": "bug", "layer": "semantic", "provenance": "regression",
+      "tags": ["security", "semantic", "p0", "credential-flow"], "expected_gate": "blocked", "path": "cmd/aegis/main.go",
+      "finding": {"severity": "critical", "category": "security", "line": 41, "rule_id": "AEGIS-SEC-001", "title": "Sensitive credential propagated to child process environment", "source": "semantic:credential-flow", "description": "A host credential crosses an explicitly untrusted child-process boundary.", "suggestion": "Construct the child environment from an allowlist that excludes host credentials."}
+    },
+    {
+      "id": "SEC-002", "directory": "SEC-002-sql-injection",
+      "title": "User input concatenated into a SQL query",
+      "description": "A SQL injection sink must be surfaced as a blocking security finding.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["security", "gosec", "p0", "sql-injection"], "expected_gate": "blocked", "path": "internal/store/user.go",
+      "finding": {"severity": "critical", "category": "security", "line": 58, "rule_id": "G201", "title": "SQL query constructed from untrusted input", "source": "gosec", "description": "Request data is concatenated into a database query.", "suggestion": "Use a parameterized query and bind user-controlled values."}
+    },
+    {
+      "id": "SEC-003", "directory": "SEC-003-command-injection",
+      "title": "Request value reaches a shell command",
+      "description": "Command construction from untrusted request data must block the merge gate.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["security", "gosec", "p0", "command-injection"], "expected_gate": "blocked", "path": "internal/runner/shell.go",
+      "finding": {"severity": "critical", "category": "security", "line": 33, "rule_id": "G204", "title": "Subprocess launched with untrusted command input", "source": "gosec", "description": "A request parameter controls the command passed to a child process.", "suggestion": "Replace shell construction with a fixed executable and validated arguments."}
+    },
+    {
+      "id": "SEC-004", "directory": "SEC-004-path-traversal",
+      "title": "Untrusted path escapes the configured workspace",
+      "description": "A variable file path without a root-boundary check is a blocking security defect.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["security", "gosec", "p0", "path-traversal"], "expected_gate": "blocked", "path": "internal/artifact/read.go",
+      "finding": {"severity": "critical", "category": "security", "line": 74, "rule_id": "G304", "title": "Potential file inclusion outside artifact root", "source": "gosec", "description": "The opened path can be influenced by an external artifact name.", "suggestion": "Resolve symlinks and prove the final path remains under the trusted root."}
+    },
+    {
+      "id": "SEC-005", "directory": "SEC-005-hardcoded-secret",
+      "title": "Production credential committed in source",
+      "description": "A hardcoded credential must be treated as P0 even when it appears in configuration code.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["security", "gosec", "p0", "secret"], "expected_gate": "blocked", "path": "internal/provider/client.go",
+      "finding": {"severity": "critical", "category": "security", "line": 19, "rule_id": "G101", "title": "Hardcoded production credential detected", "source": "gosec", "description": "Source code contains a value shaped like a production access token.", "suggestion": "Remove the value, rotate the credential, and load it from the secret store."}
+    },
+    {
+      "id": "SEC-006", "directory": "SEC-006-tls-verification-disabled",
+      "title": "TLS certificate verification disabled",
+      "description": "Disabling server identity verification creates a blocking man-in-the-middle risk.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["security", "gosec", "p0", "tls"], "expected_gate": "blocked", "path": "internal/httpclient/client.go",
+      "finding": {"severity": "critical", "category": "security", "line": 27, "rule_id": "G402", "title": "TLS certificate verification is disabled", "source": "gosec", "description": "The transport accepts certificates without validating server identity.", "suggestion": "Enable certificate verification and configure a trusted root set."}
+    },
+    {
+      "id": "SEC-007", "directory": "SEC-007-weak-password-hash",
+      "title": "Weak hash used for password material",
+      "description": "Password-derived data must not use a collision-prone hash primitive.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["security", "gosec", "p0", "cryptography"], "expected_gate": "blocked", "path": "internal/auth/password.go",
+      "finding": {"severity": "critical", "category": "security", "line": 46, "rule_id": "G401", "title": "Weak cryptographic primitive used for password hashing", "source": "gosec", "description": "The implementation hashes password material with a weak general-purpose digest.", "suggestion": "Use a password KDF such as Argon2id with an application-specific work factor."}
+    },
+    {
+      "id": "SEC-008", "directory": "SEC-008-authorization-bypass",
+      "title": "Administrative action bypasses authorization",
+      "description": "Cross-function reasoning must detect a privileged handler that omits the shared authorization guard.",
+      "kind": "bug", "layer": "mixed", "provenance": "curated_synthetic",
+      "tags": ["security", "agent", "p0", "authorization"], "expected_gate": "blocked", "path": "internal/admin/delete.go",
+      "finding": {"severity": "critical", "category": "security", "line": 63, "rule_id": "AGENT-AUTH-001", "title": "Administrative delete path bypasses authorization guard", "source": "verifier:agent-corroboration", "description": "The new handler reaches a privileged mutation without calling the repository authorization guard.", "suggestion": "Apply the shared authorization middleware and add a negative-permission test."}
+    },
+    {
+      "id": "SEC-009", "directory": "SEC-009-sensitive-log",
+      "title": "Authentication token written to logs",
+      "description": "A secret flowing into structured logs must be detected across helper calls.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["security", "agent", "p0", "secret-exposure"], "expected_gate": "blocked", "path": "internal/auth/session.go",
+      "finding": {"severity": "critical", "category": "security", "line": 88, "rule_id": "AGENT-SEC-LOG-001", "title": "Authentication token exposed through request logging", "source": "verifier:agent-corroboration", "description": "A bearer token is forwarded to a logging helper without redaction.", "suggestion": "Log a stable non-secret identifier and redact credential fields at the boundary."}
+    },
+    {
+      "id": "BUG-001", "directory": "BUG-001-failing-regression",
+      "title": "Changed regression test fails",
+      "description": "Regression for deterministic test failure normalization and P1 merge blocking.",
+      "kind": "bug", "layer": "static", "provenance": "regression",
+      "tags": ["bug", "testing", "p1", "regression"], "expected_gate": "blocked", "path": "main_test.go",
+      "finding": {"severity": "high", "category": "testing", "line": 6, "rule_id": "go-test", "title": "Changed regression test failed", "source": "go-test", "description": "A test covering the modified behavior fails deterministically.", "suggestion": "Fix the regression and keep the failing case as a permanent test."}
+    },
+    {
+      "id": "BUG-002", "directory": "BUG-002-nil-dereference",
+      "title": "Optional result dereferenced without a guard",
+      "description": "Repository context shows that a lookup can return nil before the new dereference.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["bug", "agent", "p1", "nil"], "expected_gate": "blocked", "path": "internal/cache/lookup.go",
+      "finding": {"severity": "high", "category": "bug", "line": 52, "rule_id": "AGENT-BUG-NIL-001", "title": "Optional cache entry can be dereferenced when absent", "source": "verifier:agent-corroboration", "description": "The changed code dereferences a lookup result on the documented miss path.", "suggestion": "Handle the miss before reading fields and add an empty-cache regression test."}
+    },
+    {
+      "id": "BUG-003", "directory": "BUG-003-concurrent-map-write",
+      "title": "Map mutation races across worker goroutines",
+      "description": "A shared map is written from parallel workers without synchronization.",
+      "kind": "bug", "layer": "mixed", "provenance": "curated_synthetic",
+      "tags": ["bug", "concurrency", "p1", "race"], "expected_gate": "blocked", "path": "internal/worker/state.go",
+      "finding": {"severity": "high", "category": "bug", "line": 71, "rule_id": "GO-RACE-001", "title": "Concurrent workers mutate an unprotected map", "source": "verifier:go-test-race", "description": "Two worker paths write the same map without a mutex or ownership boundary.", "suggestion": "Serialize ownership or guard all accesses with the same synchronization primitive."}
+    },
+    {
+      "id": "BUG-004", "directory": "BUG-004-check-then-act-race",
+      "title": "Check-then-act sequence permits duplicate execution",
+      "description": "Two requests can observe the same pending state and both start the job.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["bug", "concurrency", "p1", "state-machine"], "expected_gate": "blocked", "path": "internal/jobs/start.go",
+      "finding": {"severity": "high", "category": "bug", "line": 94, "rule_id": "AGENT-CONC-001", "title": "Non-atomic job transition allows duplicate execution", "source": "verifier:agent-corroboration", "description": "State validation and transition are separate operations without a compare-and-swap guard.", "suggestion": "Use an atomic transition or transaction with an expected-state predicate."}
+    },
+    {
+      "id": "BUG-005", "directory": "BUG-005-transaction-rollback",
+      "title": "Transaction error path commits partial state",
+      "description": "A failed secondary write returns without rolling back the transaction.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["bug", "database", "p1", "transaction"], "expected_gate": "blocked", "path": "internal/store/order.go",
+      "finding": {"severity": "high", "category": "bug", "line": 117, "rule_id": "AGENT-TXN-001", "title": "Failed order update leaves a partial transaction", "source": "verifier:agent-corroboration", "description": "The new error return bypasses the rollback path after the first mutation.", "suggestion": "Defer rollback immediately after begin and commit only after all writes succeed."}
+    },
+    {
+      "id": "BUG-006", "directory": "BUG-006-goroutine-leak",
+      "title": "Worker goroutine ignores cancellation",
+      "description": "A retry loop can outlive the request because it never selects on context cancellation.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["bug", "concurrency", "p1", "resource-leak"], "expected_gate": "blocked", "path": "internal/worker/retry.go",
+      "finding": {"severity": "high", "category": "bug", "line": 44, "rule_id": "AGENT-GOROUTINE-001", "title": "Retry goroutine can survive request cancellation", "source": "verifier:agent-corroboration", "description": "The loop waits only on a timer and never observes the parent context.", "suggestion": "Select on the retry timer and context cancellation on every iteration."}
+    },
+    {
+      "id": "BUG-007", "directory": "BUG-007-response-body-leak",
+      "title": "HTTP response body is not closed",
+      "description": "An early return after a successful request leaks the response body and connection.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["bug", "http", "p1", "resource-leak"], "expected_gate": "blocked", "path": "internal/provider/fetch.go",
+      "finding": {"severity": "high", "category": "bug", "line": 39, "rule_id": "bodyclose", "title": "HTTP response body is not closed", "source": "staticcheck", "description": "The successful response path returns without closing the body.", "suggestion": "Defer response body closure immediately after checking the request error."}
+    },
+    {
+      "id": "BUG-008", "directory": "BUG-008-limit-overflow",
+      "title": "Integer overflow bypasses quota enforcement",
+      "description": "Multiplication before a quota comparison can wrap and admit an oversized request.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["bug", "boundary", "p1", "overflow"], "expected_gate": "blocked", "path": "internal/quota/check.go",
+      "finding": {"severity": "high", "category": "bug", "line": 67, "rule_id": "AGENT-BOUND-001", "title": "Overflow can bypass request quota validation", "source": "verifier:agent-corroboration", "description": "The product is computed before validating operands against the maximum quota.", "suggestion": "Validate operands before multiplication or use checked arithmetic."}
+    },
+    {
+      "id": "BUG-009", "directory": "BUG-009-stale-cache",
+      "title": "Mutation path omits cache invalidation",
+      "description": "Repository context links the updated write path to a read-through cache that remains stale.",
+      "kind": "bug", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["bug", "context", "p1", "cache"], "expected_gate": "blocked", "path": "internal/profile/update.go",
+      "finding": {"severity": "high", "category": "bug", "line": 82, "rule_id": "AGENT-CACHE-001", "title": "Profile update leaves the read cache stale", "source": "verifier:agent-corroboration", "description": "The new mutation commits successfully but omits the invalidation used by sibling update paths.", "suggestion": "Invalidate the profile cache after commit and add a write-then-read regression test."}
+    },
+    {
+      "id": "QUAL-001", "directory": "QUAL-001-close-error",
+      "title": "File close error is ignored",
+      "description": "A durability-relevant close failure should remain visible without blocking a P1 gate.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["quality", "staticcheck", "p2", "error-handling"], "expected_gate": "passed", "path": "internal/export/write.go",
+      "finding": {"severity": "medium", "category": "bug", "line": 55, "rule_id": "ERR-CLOSE-001", "title": "Output file close error is discarded", "source": "staticcheck", "description": "The writer reports success even if the final close operation fails.", "suggestion": "Return or join the close error for durability-sensitive output."}
+    },
+    {
+      "id": "QUAL-002", "directory": "QUAL-002-unbounded-allocation",
+      "title": "Request count controls an unbounded allocation",
+      "description": "A potentially large allocation is P2 under the default policy and should not block merging.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["quality", "performance", "p2", "allocation"], "expected_gate": "passed", "path": "internal/batch/collect.go",
+      "finding": {"severity": "medium", "category": "performance", "line": 36, "rule_id": "AGENT-PERF-001", "title": "Batch size can trigger an unbounded allocation", "source": "verifier:agent-corroboration", "description": "The new slice capacity is copied directly from a request-controlled count.", "suggestion": "Apply a documented maximum before allocating the batch buffer."}
+    },
+    {
+      "id": "QUAL-003", "directory": "QUAL-003-context-cancellation",
+      "title": "Database call drops request cancellation",
+      "description": "Using a background context reduces cancellation correctness but remains non-blocking at P2.",
+      "kind": "bug", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["quality", "context", "p2", "cancellation"], "expected_gate": "passed", "path": "internal/store/query.go",
+      "finding": {"severity": "medium", "category": "performance", "line": 61, "rule_id": "AGENT-CTX-001", "title": "Database query ignores request cancellation", "source": "verifier:agent-corroboration", "description": "The changed call replaces the request context with a background context.", "suggestion": "Propagate the caller context to the database operation."}
+    },
+    {
+      "id": "QUAL-004", "directory": "QUAL-004-quadratic-loop",
+      "title": "Nested scan introduces quadratic work",
+      "description": "A nested lookup over the same collection should be reported as a non-blocking performance risk.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["quality", "performance", "p2", "complexity"], "expected_gate": "passed", "path": "internal/diff/match.go",
+      "finding": {"severity": "medium", "category": "performance", "line": 103, "rule_id": "AGENT-PERF-002", "title": "Nested matching loop scales quadratically", "source": "verifier:agent-corroboration", "description": "Every changed symbol scans the full repository symbol list.", "suggestion": "Build an index keyed by symbol identity before matching."}
+    },
+    {
+      "id": "QUAL-005", "directory": "QUAL-005-missing-negative-test",
+      "title": "Authorization change lacks a negative test",
+      "description": "A missing denial-path test is tracked as P2 and must remain visible without blocking.",
+      "kind": "bug", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["quality", "testing", "p2", "coverage"], "expected_gate": "passed", "path": "internal/auth/policy.go",
+      "finding": {"severity": "medium", "category": "testing", "line": 48, "rule_id": "AGENT-TEST-001", "title": "Authorization branch has no denial-path regression test", "source": "verifier:agent-corroboration", "description": "The changed allow condition is exercised only by positive tests.", "suggestion": "Add a test proving an unprivileged principal remains denied."}
+    },
+    {
+      "id": "QUAL-006", "directory": "QUAL-006-flaky-sleep-test",
+      "title": "Timing assertion relies on a fixed sleep",
+      "description": "A fixed sleep creates a flaky regression test but is non-blocking under the P1 gate.",
+      "kind": "bug", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["quality", "testing", "p2", "flaky"], "expected_gate": "passed", "path": "internal/worker/worker_test.go",
+      "finding": {"severity": "medium", "category": "testing", "line": 92, "rule_id": "AGENT-TEST-002", "title": "Fixed sleep makes the worker test timing-dependent", "source": "verifier:agent-corroboration", "description": "The test assumes completion within an arbitrary wall-clock delay.", "suggestion": "Synchronize on an observable event with a bounded timeout."}
+    },
+    {
+      "id": "QUAL-007", "directory": "QUAL-007-dead-helper",
+      "title": "New helper is unreachable",
+      "description": "An unused helper is a P3 maintainability issue and should not block the PR.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["quality", "staticcheck", "p3", "dead-code"], "expected_gate": "passed", "path": "internal/report/legacy.go",
+      "finding": {"severity": "low", "category": "maintainability", "line": 21, "rule_id": "U1000", "title": "New helper is never used", "source": "staticcheck", "description": "The added private helper has no call sites.", "suggestion": "Remove the helper or integrate it into the intended path."}
+    },
+    {
+      "id": "QUAL-008", "directory": "QUAL-008-duplicate-branch",
+      "title": "Conditional branches perform identical work",
+      "description": "Duplicated branches add maintenance cost but remain a P3 notice.",
+      "kind": "bug", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["quality", "staticcheck", "p3", "maintainability"], "expected_gate": "passed", "path": "internal/config/normalize.go",
+      "finding": {"severity": "low", "category": "maintainability", "line": 77, "rule_id": "SA4006", "title": "Conditional branches contain duplicate logic", "source": "staticcheck", "description": "Both sides assign the same normalized configuration value.", "suggestion": "Collapse the branches into a single assignment."}
+    },
+    {
+      "id": "QUAL-009", "directory": "QUAL-009-documentation-drift",
+      "title": "Public option is missing documentation",
+      "description": "A newly exported configuration option without documentation is a non-blocking P3 issue.",
+      "kind": "bug", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["quality", "documentation", "p3", "api"], "expected_gate": "passed", "path": "internal/config/options.go",
+      "finding": {"severity": "low", "category": "maintainability", "line": 34, "rule_id": "AGENT-DOC-001", "title": "Exported gate option lacks behavioral documentation", "source": "verifier:agent-corroboration", "description": "The new public option changes merge behavior but has no contract comment.", "suggestion": "Document defaults, accepted values, and failure semantics."}
+    },
+    {
+      "id": "NR-001", "directory": "NR-001-authorization-boundary",
+      "title": "Possible authorization boundary bypass",
+      "description": "A P0 hypothesis without independent evidence must remain visible and block pending review.",
+      "kind": "needs_review", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["needs-review", "security", "p0", "authorization"], "expected_gate": "blocked", "path": "internal/admin/restore.go",
+      "hypothesis": {"severity": "critical", "category": "security", "line": 54, "title": "Restore endpoint may bypass tenant authorization", "reason": "The source boundary is valid, but available static and semantic evidence cannot prove the tenant guard executes."}
+    },
+    {
+      "id": "NR-002", "directory": "NR-002-credential-exfiltration",
+      "title": "Possible credential exfiltration through plugin metadata",
+      "description": "An unresolved P0 secret-flow hypothesis exercises the separate Needs Review gate.",
+      "kind": "needs_review", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["needs-review", "security", "p0", "credential-flow"], "expected_gate": "blocked", "path": "internal/plugin/metadata.go",
+      "hypothesis": {"severity": "critical", "category": "security", "line": 81, "title": "Plugin metadata may expose a host credential", "reason": "The candidate reaches a serialization helper, but the repository snapshot cannot establish whether redaction occurs at runtime."}
+    },
+    {
+      "id": "NR-003", "directory": "NR-003-state-corruption",
+      "title": "Possible state corruption under retry",
+      "description": "An unresolved P1 hypothesis remains visible but does not cross the default P0 Needs Review threshold.",
+      "kind": "needs_review", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["needs-review", "bug", "p1", "retry"], "expected_gate": "passed", "path": "internal/jobs/reconcile.go",
+      "hypothesis": {"severity": "high", "category": "bug", "line": 109, "title": "Retry may apply the same transition twice", "reason": "The transition appears non-idempotent, but the external storage contract is not available in repository evidence."}
+    },
+    {
+      "id": "NR-004", "directory": "NR-004-channel-liveness",
+      "title": "Possible channel liveness issue",
+      "description": "A P2 concurrency hypothesis tests non-blocking human-review presentation.",
+      "kind": "needs_review", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["needs-review", "concurrency", "p2", "liveness"], "expected_gate": "passed", "path": "internal/worker/fanout.go",
+      "hypothesis": {"severity": "medium", "category": "bug", "line": 73, "title": "Fan-out sender may wait forever after cancellation", "reason": "The send is potentially blocking, but buffer ownership and shutdown ordering cannot be confirmed statically."}
+    },
+    {
+      "id": "NR-005", "directory": "NR-005-client-compatibility",
+      "title": "Possible backward-compatibility change",
+      "description": "A P3 compatibility hypothesis should be visible without affecting the default merge decision.",
+      "kind": "needs_review", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["needs-review", "compatibility", "p3", "api"], "expected_gate": "passed", "path": "internal/api/response.go",
+      "hypothesis": {"severity": "low", "category": "maintainability", "line": 28, "title": "Response field rename may break older clients", "reason": "Repository references were updated, but external consumer compatibility cannot be established from local evidence."}
+    },
+    {
+      "id": "RES-001", "directory": "RES-001-agent-partial-p2-policy",
+      "title": "Reasoning Agent degradation does not block deterministic evidence",
+      "description": "Regression for the PR #9 failure where Agent partial incorrectly contaminated Verifier status and blocked a P2-only review.",
+      "kind": "resilience", "layer": "gate", "provenance": "regression",
+      "tags": ["resilience", "gate", "agent-partial", "regression"], "expected_gate": "passed", "path": "internal/githubreport/report.go",
+      "stages": {"analysis": "complete", "context": "complete", "agent": "partial", "verification": "complete"}
+    },
+    {
+      "id": "RES-002", "directory": "RES-002-analysis-partial",
+      "title": "Incomplete deterministic analysis fails closed",
+      "description": "A partial analyzer run must block even when no P0/P1 finding was produced.",
+      "kind": "resilience", "layer": "gate", "provenance": "curated_synthetic",
+      "tags": ["resilience", "gate", "analysis-partial"], "expected_gate": "blocked", "path": "internal/analyzer/pipeline.go",
+      "stages": {"analysis": "partial", "context": "complete", "agent": "skipped", "verification": "complete"}
+    },
+    {
+      "id": "RES-003", "directory": "RES-003-verifier-partial",
+      "title": "Incomplete Verifier evidence fails closed",
+      "description": "A real semantic verification failure must not be waived as optional Agent degradation.",
+      "kind": "resilience", "layer": "gate", "provenance": "curated_synthetic",
+      "tags": ["resilience", "gate", "verifier-partial"], "expected_gate": "blocked", "path": "internal/verifier/semantic.go",
+      "stages": {"analysis": "complete", "context": "complete", "agent": "skipped", "verification": "partial", "verification_warnings": ["semantic source parsing failed"]}
+    },
+    {
+      "id": "CLEAN-001", "directory": "CLEAN-001-documentation",
+      "title": "Documentation-only change",
+      "description": "Regression proving a documentation-only PR remains clean and unblocked.",
+      "kind": "clean", "layer": "context", "provenance": "regression",
+      "tags": ["clean", "documentation", "regression"], "expected_gate": "passed", "path": "README.md"
+    },
+    {
+      "id": "CLEAN-002", "directory": "CLEAN-002-parameterized-sql",
+      "title": "Parameterized SQL query",
+      "description": "User input is bound as a parameter and must not trigger an injection finding.",
+      "kind": "clean", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["clean", "security", "sql"], "expected_gate": "passed", "path": "internal/store/user.go"
+    },
+    {
+      "id": "CLEAN-003", "directory": "CLEAN-003-exec-allowlist",
+      "title": "Fixed executable with validated arguments",
+      "description": "A child process launched from a fixed allowlist is a negative command-injection control.",
+      "kind": "clean", "layer": "semantic", "provenance": "curated_synthetic",
+      "tags": ["clean", "security", "command"], "expected_gate": "passed", "path": "internal/runner/command.go"
+    },
+    {
+      "id": "CLEAN-004", "directory": "CLEAN-004-rooted-file-open",
+      "title": "File access constrained beneath a trusted root",
+      "description": "Resolved-path containment and symlink rejection form a clean path-access control.",
+      "kind": "clean", "layer": "semantic", "provenance": "curated_synthetic",
+      "tags": ["clean", "security", "path"], "expected_gate": "passed", "path": "internal/artifact/read.go"
+    },
+    {
+      "id": "CLEAN-005", "directory": "CLEAN-005-secret-redaction",
+      "title": "Secret redacted before structured logging",
+      "description": "A logging helper receives only a stable token fingerprint, not the original credential.",
+      "kind": "clean", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["clean", "security", "logging"], "expected_gate": "passed", "path": "internal/auth/session.go"
+    },
+    {
+      "id": "CLEAN-006", "directory": "CLEAN-006-tls-minimum",
+      "title": "TLS verification with a minimum protocol version",
+      "description": "A hardened TLS configuration is the negative control for transport-security findings.",
+      "kind": "clean", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["clean", "security", "tls"], "expected_gate": "passed", "path": "internal/httpclient/client.go"
+    },
+    {
+      "id": "CLEAN-007", "directory": "CLEAN-007-synchronized-map",
+      "title": "Shared map access protected by one mutex",
+      "description": "All read and write paths use the same lock and should not produce a race hypothesis.",
+      "kind": "clean", "layer": "mixed", "provenance": "curated_synthetic",
+      "tags": ["clean", "concurrency", "mutex"], "expected_gate": "passed", "path": "internal/worker/state.go"
+    },
+    {
+      "id": "CLEAN-008", "directory": "CLEAN-008-context-timeout",
+      "title": "Request context propagated with a bounded timeout",
+      "description": "The downstream operation preserves cancellation while adding a local deadline.",
+      "kind": "clean", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["clean", "context", "timeout"], "expected_gate": "passed", "path": "internal/store/query.go"
+    },
+    {
+      "id": "CLEAN-009", "directory": "CLEAN-009-transaction-rollback",
+      "title": "Transaction rollback is deferred immediately",
+      "description": "All error paths roll back and only the successful path commits.",
+      "kind": "clean", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["clean", "database", "transaction"], "expected_gate": "passed", "path": "internal/store/order.go"
+    },
+    {
+      "id": "CLEAN-010", "directory": "CLEAN-010-checked-arithmetic",
+      "title": "Quota arithmetic validates operands before multiplication",
+      "description": "Bounds are checked before arithmetic, preventing overflow and quota bypass.",
+      "kind": "clean", "layer": "agent", "provenance": "curated_synthetic",
+      "tags": ["clean", "boundary", "overflow"], "expected_gate": "passed", "path": "internal/quota/check.go"
+    },
+    {
+      "id": "CLEAN-011", "directory": "CLEAN-011-error-propagation",
+      "title": "Write and close errors are propagated",
+      "description": "A joined error preserves both the write failure and final close failure.",
+      "kind": "clean", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["clean", "error-handling", "io"], "expected_gate": "passed", "path": "internal/export/write.go"
+    },
+    {
+      "id": "CLEAN-012", "directory": "CLEAN-012-event-driven-test",
+      "title": "Worker test synchronizes on an observable event",
+      "description": "The test uses an event and bounded timeout instead of an arbitrary sleep.",
+      "kind": "clean", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["clean", "testing", "deterministic"], "expected_gate": "passed", "path": "internal/worker/worker_test.go"
+    },
+    {
+      "id": "CLEAN-013", "directory": "CLEAN-013-config-rename",
+      "title": "Internal configuration field rename",
+      "description": "All repository references and serialized names remain compatible after an internal rename.",
+      "kind": "clean", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["clean", "refactor", "config"], "expected_gate": "passed", "path": "internal/config/options.go"
+    },
+    {
+      "id": "CLEAN-014", "directory": "CLEAN-014-dependency-checksum",
+      "title": "Dependency checksum-only update",
+      "description": "A checksum refresh without executable source changes should remain clean.",
+      "kind": "clean", "layer": "static", "provenance": "curated_synthetic",
+      "tags": ["clean", "dependency", "go-sum"], "expected_gate": "passed", "path": "go.sum"
+    },
+    {
+      "id": "CLEAN-015", "directory": "CLEAN-015-generated-api-docs",
+      "title": "Generated API documentation refresh",
+      "description": "A generated documentation artifact with no runtime changes must not be falsely blocked.",
+      "kind": "clean", "layer": "context", "provenance": "curated_synthetic",
+      "tags": ["clean", "documentation", "generated"], "expected_gate": "passed", "path": "docs/api.md"
+    }
+  ]
+}

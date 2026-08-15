@@ -1,0 +1,117 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/sec-002",
+    "base": "master",
+    "head": "eval/sec-002",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "b1723099c67f23e9fe95bb699c5a8a1af763007c"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 0,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/store/user.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-SEC-002",
+      "rule_id": "G201",
+      "title": "SQL query constructed from untrusted input",
+      "description": "Request data is concatenated into a database query.",
+      "severity": "critical",
+      "category": "security",
+      "location": {
+        "path": "internal/store/user.go",
+        "start_line": 58,
+        "end_line": 58
+      },
+      "evidence": "Versioned golden evidence for SEC-002.",
+      "suggestion": "Use a parameterized query and bind user-controlled values.",
+      "confidence": 0.95,
+      "source": "gosec",
+      "fingerprint": "45eda0dd75071fd77e7d0c78beee4cb50147c46eaf40b7d5721ce0ea8edf8bb0"
+    }
+  ]
+}

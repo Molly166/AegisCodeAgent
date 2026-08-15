@@ -1,0 +1,20 @@
+{
+  "schema_version": "v2",
+  "id": "RES-001",
+  "title": "Reasoning Agent degradation does not block deterministic evidence",
+  "description": "Regression for the PR #9 failure where Agent partial incorrectly contaminated Verifier status and blocked a P2-only review.",
+  "kind": "resilience",
+  "layer": "gate",
+  "provenance": "regression",
+  "tags": [
+    "resilience",
+    "gate",
+    "agent-partial",
+    "regression"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "passed",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

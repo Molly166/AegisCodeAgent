@@ -1,0 +1,165 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/bug-002",
+    "base": "master",
+    "head": "eval/bug-002",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "c31dfc171c4b6615e799e36efd3585ff83f17f26"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "complete",
+    "provider": "recorded-fixture",
+    "model": "golden-corpus",
+    "thinking": false,
+    "steps": 1,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [
+      {
+        "id": "AGENT-A666B84B52",
+        "fingerprint": "a666b84b5202960b4c86ea1280aecfff92e910e58a4a039177d9507b10c24fb9",
+        "title": "Optional cache entry can be dereferenced when absent",
+        "description": "The changed code dereferences a lookup result on the documented miss path.",
+        "severity": "high",
+        "category": "bug",
+        "location": {
+          "path": "internal/cache/lookup.go",
+          "start_line": 52,
+          "end_line": 52
+        },
+        "evidence": "Versioned golden evidence for BUG-002.",
+        "suggestion": "Handle the miss before reading fields and add an empty-cache regression test.",
+        "confidence": 0.95,
+        "verification": [
+          "Replay the recorded deterministic corroboration."
+        ]
+      }
+    ],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 1,
+      "verified": 1,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 1
+    },
+    "tools": [],
+    "candidates": [
+      {
+        "candidate_id": "AGENT-A666B84B52",
+        "title": "Optional cache entry can be dereferenced when absent",
+        "severity": "high",
+        "location": {
+          "path": "internal/cache/lookup.go",
+          "start_line": 52,
+          "end_line": 52
+        },
+        "verdict": "verified",
+        "reason": "golden corpus records independent corroboration",
+        "calibrated_confidence": 0.95,
+        "checks": [
+          {
+            "name": "golden-corroboration",
+            "status": "passed",
+            "detail": "recorded evidence matched"
+          }
+        ],
+        "matched_finding_ids": [
+          "EVAL-BUG-002"
+        ],
+        "finding_id": "EVAL-BUG-002",
+        "promoted": true
+      }
+    ],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/cache/lookup.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-BUG-002",
+      "rule_id": "AGENT-BUG-NIL-001",
+      "title": "Optional cache entry can be dereferenced when absent",
+      "description": "The changed code dereferences a lookup result on the documented miss path.",
+      "severity": "high",
+      "category": "bug",
+      "location": {
+        "path": "internal/cache/lookup.go",
+        "start_line": 52,
+        "end_line": 52
+      },
+      "evidence": "Versioned golden evidence for BUG-002.",
+      "suggestion": "Handle the miss before reading fields and add an empty-cache regression test.",
+      "confidence": 0.95,
+      "source": "verifier:agent-corroboration",
+      "fingerprint": "46f154e652d0c937219a340c1728a649cfc384f9701251275115567d71e9b2f0"
+    }
+  ]
+}

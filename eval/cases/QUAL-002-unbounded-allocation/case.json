@@ -1,0 +1,29 @@
+{
+  "schema_version": "v2",
+  "id": "QUAL-002",
+  "title": "Request count controls an unbounded allocation",
+  "description": "A potentially large allocation is P2 under the default policy and should not block merging.",
+  "kind": "bug",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "quality",
+    "performance",
+    "p2",
+    "allocation"
+  ],
+  "report": "report.json",
+  "expected_findings": [
+    {
+      "severity": "medium",
+      "category": "performance",
+      "path": "internal/batch/collect.go",
+      "start_line": 36,
+      "rule_id": "AGENT-PERF-001",
+      "title_contains": "Batch size can trigger an unbounded allocation"
+    }
+  ],
+  "expected_gate": "passed",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

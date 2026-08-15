@@ -1,35 +1,43 @@
 {
   "schema_version": "v6",
-  "generated_at": "2026-08-15T00:00:00Z",
+  "generated_at": "2026-08-16T00:00:00Z",
   "comparison": {
-    "repository": "AegisCodeAgent",
+    "repository": "eval-fixture/bug-001",
     "base": "master",
-    "head": "test/failing-regression",
-    "base_commit": "base",
-    "head_commit": "head"
+    "head": "eval/bug-001",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "eb7af759c72b6293fb76eb81563e53cfe67b960d"
   },
   "analysis": {
     "status": "complete",
-    "completed_stages": ["diff", "static-analysis"],
-    "tools": [
-      {"name": "go-test", "status": "findings", "duration_ms": 320, "findings": 1, "suppressed": 0}
-    ]
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
   },
   "context": {
     "status": "complete",
     "change_intent": {
-      "source": "github_pull_request",
-      "title": "Change behavior",
-      "labels": ["bug"],
-      "linked_issues": ["#18"],
+      "labels": [],
+      "linked_issues": [],
       "repository_guidance": [],
       "truncated": false
     },
-    "packages": ["example.com/aegisfixture"],
+    "packages": [],
     "changed_symbols": [],
     "related_symbols": [],
     "relations": [],
-    "stats": {},
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
     "truncated": false,
     "warnings": []
   },
@@ -38,15 +46,27 @@
     "thinking": false,
     "steps": 0,
     "duration_ms": 0,
-    "usage": {},
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
     "candidates": [],
     "tool_calls": [],
     "warnings": []
   },
   "verification": {
     "status": "complete",
-    "duration_ms": 20,
-    "summary": {"candidates": 0, "verified": 0, "rejected": 0, "needs_review": 0, "inconclusive": 0, "semantic_findings": 0, "promoted": 0},
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 0,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
     "tools": [],
     "candidates": [],
     "warnings": []
@@ -54,7 +74,7 @@
   "summary": {
     "changed_files": 1,
     "additions": 1,
-    "deletions": 1,
+    "deletions": 0,
     "findings": 1,
     "critical": 0,
     "high": 1,
@@ -63,22 +83,35 @@
     "info": 0
   },
   "files": [
-    {"new_path": "main_test.go", "status": "modified", "binary": false, "stats": {"additions": 1, "deletions": 1}, "hunks": []}
+    {
+      "new_path": "main_test.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
   ],
   "findings": [
     {
-      "id": "AEGIS-TEST-REGRESSION",
+      "id": "EVAL-BUG-001",
       "rule_id": "go-test",
-      "title": "Go test failure introduced by changed code",
-      "description": "The affected package test exits unsuccessfully on the reviewed head.",
+      "title": "Changed regression test failed",
+      "description": "A test covering the modified behavior fails deterministically.",
       "severity": "high",
       "category": "testing",
-      "location": {"path": "main_test.go", "start_line": 6, "end_line": 6},
-      "evidence": "TestValue: intentional regression",
-      "suggestion": "Restore the expected behavior or update the test only when the contract intentionally changed.",
-      "confidence": 0.99,
+      "location": {
+        "path": "main_test.go",
+        "start_line": 6,
+        "end_line": 6
+      },
+      "evidence": "Versioned golden evidence for BUG-001.",
+      "suggestion": "Fix the regression and keep the failing case as a permanent test.",
+      "confidence": 0.95,
       "source": "go-test",
-      "fingerprint": "bug-001-regression"
+      "fingerprint": "8a7b7e281ed1dfd4eb407c3d3385aa5e805466048785ae9343bc1b8d04b17b60"
     }
   ]
 }

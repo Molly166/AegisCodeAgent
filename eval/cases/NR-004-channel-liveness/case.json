@@ -1,0 +1,20 @@
+{
+  "schema_version": "v2",
+  "id": "NR-004",
+  "title": "Possible channel liveness issue",
+  "description": "A P2 concurrency hypothesis tests non-blocking human-review presentation.",
+  "kind": "needs_review",
+  "layer": "agent",
+  "provenance": "curated_synthetic",
+  "tags": [
+    "needs-review",
+    "concurrency",
+    "p2",
+    "liveness"
+  ],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "passed",
+  "expected_needs_review": 1,
+  "max_unexpected_findings": 0
+}

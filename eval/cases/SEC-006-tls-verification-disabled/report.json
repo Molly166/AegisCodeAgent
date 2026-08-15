@@ -1,0 +1,117 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/sec-006",
+    "base": "master",
+    "head": "eval/sec-006",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "415be049fe3575a203abd9b6a96b714e2f4044b9"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 0,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 1,
+    "high": 0,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/httpclient/client.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-SEC-006",
+      "rule_id": "G402",
+      "title": "TLS certificate verification is disabled",
+      "description": "The transport accepts certificates without validating server identity.",
+      "severity": "critical",
+      "category": "security",
+      "location": {
+        "path": "internal/httpclient/client.go",
+        "start_line": 27,
+        "end_line": 27
+      },
+      "evidence": "Versioned golden evidence for SEC-006.",
+      "suggestion": "Enable certificate verification and configure a trusted root set.",
+      "confidence": 0.95,
+      "source": "gosec",
+      "fingerprint": "67ace2301d7fd8dfbd7520357602de9f3a3b1095854efd1d11459dc0a093e35b"
+    }
+  ]
+}

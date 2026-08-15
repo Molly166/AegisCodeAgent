@@ -1,0 +1,117 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-16T00:00:00Z",
+  "comparison": {
+    "repository": "eval-fixture/qual-001",
+    "base": "master",
+    "head": "eval/qual-001",
+    "base_commit": "0000000000000000000000000000000000000000",
+    "head_commit": "9c2837e0f887946f24ad2964896f831d6bd4bb4f"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": [
+      "diff",
+      "static-analysis"
+    ],
+    "tools": []
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "labels": [],
+      "linked_issues": [],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": [],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {
+      "packages_loaded": 0,
+      "packages_type_checked": 0,
+      "type_check_failures": 0,
+      "files_parsed": 0,
+      "symbols_indexed": 0,
+      "relations_indexed": 0,
+      "symbols_selected": 0,
+      "estimated_tokens": 0
+    },
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "total_tokens": 0
+    },
+    "candidates": [],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 0,
+    "summary": {
+      "candidates": 0,
+      "verified": 0,
+      "rejected": 0,
+      "needs_review": 0,
+      "inconclusive": 0,
+      "semantic_findings": 0,
+      "promoted": 0
+    },
+    "tools": [],
+    "candidates": [],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 0,
+    "findings": 1,
+    "critical": 0,
+    "high": 0,
+    "medium": 1,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {
+      "new_path": "internal/export/write.go",
+      "status": "modified",
+      "binary": false,
+      "stats": {
+        "additions": 1,
+        "deletions": 0
+      },
+      "hunks": []
+    }
+  ],
+  "findings": [
+    {
+      "id": "EVAL-QUAL-001",
+      "rule_id": "ERR-CLOSE-001",
+      "title": "Output file close error is discarded",
+      "description": "The writer reports success even if the final close operation fails.",
+      "severity": "medium",
+      "category": "bug",
+      "location": {
+        "path": "internal/export/write.go",
+        "start_line": 55,
+        "end_line": 55
+      },
+      "evidence": "Versioned golden evidence for QUAL-001.",
+      "suggestion": "Return or join the close error for durability-sensitive output.",
+      "confidence": 0.95,
+      "source": "staticcheck",
+      "fingerprint": "94aba0014da6f2f01346efa79670f392070b4b3c6cb7af8fe220d5086f4e9fab"
+    }
+  ]
+}
