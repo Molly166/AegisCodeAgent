@@ -145,6 +145,8 @@ Open the pull request and inspect:
 | P2 | Medium | Warning | No |
 | P3 | Low / Info | Notice | No |
 
+Reasoning Agent or repository-context degradation is reported as reduced coverage and does not become a P0/P1 by itself. Deterministic analysis or Verifier incompleteness still fails closed, while unresolved P0 hypotheses follow the separate needs-review threshold.
+
 To enforce the result, add `Aegis Code Review` as a required status check in the `master` branch ruleset. GitHub's own notification settings provide web and email notifications; Aegis does not run a separate mail service.
 
 > Aegis is currently repository-native rather than a Marketplace action. It works out of the box in this repository and its forks. Installing it into an unrelated repository currently requires bringing the Aegis source and workflow into that repository; packaging it as a reusable action is future work.

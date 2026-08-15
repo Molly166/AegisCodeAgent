@@ -125,7 +125,18 @@ func readPullRequestEvent(path string) (pullRequestEvent, error) {
 }
 
 func readRepositoryGuidance(repository, relative string, maximumBytes int) (string, bool, error) {
-	path := filepath.Join(repository, filepath.FromSlash(relative))
+	if !allowedGuidancePath(relative) {
+		return "", false, errors.New("guidance path is not allowlisted")
+	}
+	root, err := filepath.Abs(repository)
+	if err != nil {
+		return "", false, err
+	}
+	root, err = filepath.EvalSymlinks(root)
+	if err != nil {
+		return "", false, err
+	}
+	path := filepath.Join(root, filepath.FromSlash(relative))
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return "", false, nil
@@ -136,13 +147,23 @@ func readRepositoryGuidance(repository, relative string, maximumBytes int) (stri
 	if info.Mode()&os.ModeSymlink != 0 {
 		return "", true, errors.New("symbolic links are not accepted")
 	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", true, err
+	}
+	relativeToRoot, err := filepath.Rel(root, resolved)
+	if err != nil || relativeToRoot == ".." || strings.HasPrefix(relativeToRoot, ".."+string(filepath.Separator)) {
+		return "", true, errors.New("guidance path escapes the repository")
+	}
 	if !info.Mode().IsRegular() || info.Size() > defaultMaxFileBytes {
 		return "", true, errors.New("guidance must be a bounded regular file")
 	}
 	if maximumBytes <= 0 {
 		return "", true, nil
 	}
-	file, err := os.Open(path)
+	// #nosec G304 -- resolved is derived from a fixed allowlist, has no symlink
+	// leaf, and is proven to remain beneath the resolved repository root.
+	file, err := os.Open(resolved)
 	if err != nil {
 		return "", true, err
 	}
@@ -152,6 +173,15 @@ func readRepositoryGuidance(repository, relative string, maximumBytes int) (stri
 		return "", true, err
 	}
 	return truncateIntentText(string(content), maximumBytes), true, nil
+}
+
+func allowedGuidancePath(relative string) bool {
+	for _, allowed := range guidancePaths {
+		if relative == allowed {
+			return true
+		}
+	}
+	return false
 }
 
 func takeIntentText(value string, remaining int, alreadyTruncated bool) (string, int, bool) {

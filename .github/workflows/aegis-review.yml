@@ -151,18 +151,33 @@ jobs:
         shell: bash
         run: |
           summary_path="$GITHUB_WORKSPACE/artifacts/review-summary.md"
+          report_path="$GITHUB_WORKSPACE/artifacts/review.json"
           needs_review_args=()
+          fail_on_incomplete=true
           if [[ "${{ steps.toolchain.outputs.needs_review_gate }}" == "true" ]]; then
             needs_review_args=(--fail-on-needs-review "$AEGIS_FAIL_ON_NEEDS_REVIEW")
+          elif jq -e '
+            .analysis.status == "complete" and
+            .context.status == "complete" and
+            .agent.status == "partial" and
+            .verification.status == "partial" and
+            ((.verification.warnings // []) | length > 0) and
+            ((.verification.warnings // []) | all(. == "reasoning agent was partial"))
+          ' "$report_path" >/dev/null; then
+            # v0.6 copied an optional Agent coverage warning into the Verifier
+            # status. Waive only that exact legacy cascade while keeping real
+            # analyzer/context/verifier incompleteness fail-closed.
+            fail_on_incomplete=false
+            echo "::notice title=Aegis compatibility mode::Optional Reasoning Agent degradation is visible but does not override the deterministic P0/P1 merge gate."
           fi
           set +e
           "${{ steps.toolchain.outputs.publisher }}" github \
-            --report "$GITHUB_WORKSPACE/artifacts/review.json" \
+            --report "$report_path" \
             --html-output "$GITHUB_WORKSPACE/artifacts/review.html" \
             --summary "$summary_path" \
             --artifact-name "$AEGIS_ARTIFACT_NAME" \
             --fail-on "$AEGIS_FAIL_ON" \
-            --fail-on-incomplete=true \
+            --fail-on-incomplete="$fail_on_incomplete" \
             --max-annotations 50 \
             "${needs_review_args[@]}"
           publish_exit=$?

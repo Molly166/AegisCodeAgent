@@ -145,6 +145,8 @@ Pull Request を開き、次の項目を確認します。
 | P2 | Medium | Warning | いいえ |
 | P3 | Low / Info | Notice | いいえ |
 
+Reasoning Agent またはリポジトリ Context の劣化は Review Coverage の低下として表示され、それ自体が P0/P1 になることはありません。決定論的な静的解析または Verifier が未完了の場合は引き続き fail-closed とし、未解決の P0 仮説は独立した Needs Review Threshold で制御します。
+
 結果を強制するには、`master` の Branch Ruleset で `Aegis Code Review` を Required Status Check に設定してください。Web およびメール通知は GitHub の通知設定が担当し、Aegis 自体は別のメールサービスを実行しません。
 
 > Aegis は現在、GitHub Marketplace Action ではなく Repository-native Workflow です。このリポジトリとその Fork ではすぐに利用できます。無関係な別リポジトリへ導入するには、現時点では Aegis のソースと Workflow の両方を取り込む必要があります。再利用可能な Action としての Package 化は今後の課題です。

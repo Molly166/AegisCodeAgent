@@ -145,6 +145,8 @@ git push -u origin feature/my-change
 | P2 | Medium | Warning | 否 |
 | P3 | Low / Info | Notice | 否 |
 
+Reasoning Agent 或仓库上下文降级只表示审核覆盖率下降，不会自行升级为 P0/P1。确定性静态分析或 Verifier 未完整执行仍采用 fail-closed；未解决的 P0 假设则由独立的 Needs Review 阈值控制。
+
 如需强制执行审核结果，在 `master` Branch Ruleset 中将 `Aegis Code Review` 设置为 Required Status Check。GitHub 自身的通知设置负责站内和邮件通知，Aegis 不额外运行邮件服务。
 
 > Aegis 当前是 Repository-native Workflow，还不是 GitHub Marketplace Action。它可以在本仓库及其 Fork 中开箱即用；集成到完全无关的仓库目前需要同时引入 Aegis 源码和 Workflow，封装为可复用 Action 属于后续工作。

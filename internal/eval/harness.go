@@ -172,7 +172,9 @@ func loadReviewReport(path string) (review.ReviewReport, error) {
 }
 
 func decodeBoundedJSON(path string, maximum int64, destination any) error {
-	file, err := os.Open(path)
+	// #nosec G304 -- callers pass either WalkDir-discovered case files or
+	// report paths resolved and proven to remain beneath the eval corpus root.
+	file, err := os.Open(filepath.Clean(path))
 	if err != nil {
 		return err
 	}

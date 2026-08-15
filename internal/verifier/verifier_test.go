@@ -97,6 +97,20 @@ func TestVerifierKeepsUnsupportedCandidateForHumanReview(t *testing.T) {
 	}
 }
 
+func TestVerifierStatusDoesNotInheritAgentDegradation(t *testing.T) {
+	repository := t.TempDir()
+	agentRun := review.EmptyAgentRun(review.AgentPartial)
+	agentRun.Warnings = []string{"agent stopped after reaching the configured step limit"}
+
+	output, err := New(&fakePipeline{}).Run(context.Background(), Config{Repository: repository}, Input{Agent: agentRun})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Verification.Status != review.VerificationComplete || len(output.Verification.Warnings) != 0 {
+		t.Fatalf("verifier inherited an unrelated Agent degradation: %+v", output.Verification)
+	}
+}
+
 func TestVerifierSemanticEvidenceBlocksCredentialLeakWithoutAgentCandidate(t *testing.T) {
 	repository, files := semanticCredentialFixture(t)
 	output, err := New(&fakePipeline{}).Run(context.Background(), Config{Repository: repository}, Input{

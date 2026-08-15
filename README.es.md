@@ -145,6 +145,8 @@ Abre el Pull Request y revisa:
 | P2 | Medium | Warning | No |
 | P3 | Low / Info | Notice | No |
 
+La degradación del Reasoning Agent o del contexto del repositorio se muestra como una reducción de cobertura y no se convierte por sí sola en P0/P1. Un análisis determinista o Verifier incompleto continúa aplicando fail-closed, mientras que las hipótesis P0 no resueltas usan el umbral independiente de Needs Review.
+
 Para aplicar el resultado de forma obligatoria, añade `Aegis Code Review` como Required Status Check en el Branch Ruleset de `master`. La configuración de notificaciones de GitHub se encarga de los avisos web y por correo electrónico; Aegis no ejecuta un servicio de correo separado.
 
 > Actualmente, Aegis es un Workflow nativo del repositorio y no una Action de GitHub Marketplace. Funciona de inmediato en este repositorio y en sus Forks. Para instalarlo en un repositorio no relacionado todavía es necesario incorporar tanto el código fuente de Aegis como su Workflow; empaquetarlo como Action reutilizable es trabajo futuro.

@@ -113,10 +113,6 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 	if len(input.Agent.Candidates) == 0 {
 		output.PromotedFindings = append(output.PromotedFindings, semanticFindings...)
 		output.Verification.Summary.Promoted = len(output.PromotedFindings)
-		if input.Agent.Status == review.AgentPartial {
-			output.Verification.Status = review.VerificationPartial
-			output.Verification.Warnings = append(output.Verification.Warnings, "reasoning agent was partial")
-		}
 		output.Verification.Warnings = uniqueStrings(output.Verification.Warnings)
 		return output, nil
 	}
@@ -222,10 +218,6 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 		output.PromotedFindings = append(output.PromotedFindings, finding)
 	}
 
-	if input.Agent.Status == review.AgentPartial && output.Verification.Status == review.VerificationComplete {
-		output.Verification.Status = review.VerificationPartial
-		output.Verification.Warnings = append(output.Verification.Warnings, "reasoning agent was partial; only returned candidates were verified")
-	}
 	output.Verification.Warnings = uniqueStrings(output.Verification.Warnings)
 	output.Verification.Summary = summarize(output.Verification.Candidates)
 	output.Verification.Summary.SemanticFindings = len(semanticFindings)

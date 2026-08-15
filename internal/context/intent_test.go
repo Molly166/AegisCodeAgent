@@ -48,6 +48,25 @@ func TestBuildChangeIntentRejectsSymlinkedGuidance(t *testing.T) {
 	}
 }
 
+func TestBuildChangeIntentRejectsSymlinkedGuidanceParent(t *testing.T) {
+	repository := t.TempDir()
+	external := t.TempDir()
+	writeContextFile(t, filepath.Join(external, "copilot-instructions.md"), "outside")
+	if err := os.Symlink(external, filepath.Join(repository, ".github")); err != nil {
+		t.Skipf("create symlink: %v", err)
+	}
+	intent, warnings := BuildChangeIntent(repository, "", 1024)
+	if len(intent.RepositoryGuidance) != 0 || len(warnings) != 1 || !strings.Contains(warnings[0], "escapes the repository") {
+		t.Fatalf("symlinked guidance parent was not rejected: intent=%+v warnings=%v", intent, warnings)
+	}
+}
+
+func TestReadRepositoryGuidanceRejectsPathOutsideAllowlist(t *testing.T) {
+	if _, _, err := readRepositoryGuidance(t.TempDir(), "../../outside", 1024); err == nil || !strings.Contains(err.Error(), "allowlisted") {
+		t.Fatalf("non-allowlisted guidance path was accepted: %v", err)
+	}
+}
+
 func TestBuilderAttachesIntentWhenNoGoPackagesAreSelected(t *testing.T) {
 	repository := t.TempDir()
 	writeContextFile(t, filepath.Join(repository, "CONTRIBUTING.md"), "Preserve API compatibility.")

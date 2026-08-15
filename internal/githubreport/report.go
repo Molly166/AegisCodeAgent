@@ -37,10 +37,12 @@ type GateResult struct {
 	BlockedByFinding     bool
 	BlockedByNeedsReview bool
 	Incomplete           bool
+	Degraded             bool
 	NeedsReview          bool
 	Highest              Priority
 	NeedsReviewHighest   Priority
 	IncompleteReasons    []string
+	DegradedReasons      []string
 }
 
 type Options struct {
@@ -108,8 +110,10 @@ func EvaluateWithOptions(report review.ReviewReport, options Options) GateResult
 		Highest:            highestPriority(report.Findings),
 		NeedsReviewHighest: highestNeedsReviewPriority(report.Verification.Candidates),
 		IncompleteReasons:  incompleteReasons(report),
+		DegradedReasons:    degradedReasons(report),
 	}
 	result.Incomplete = len(result.IncompleteReasons) > 0
+	result.Degraded = len(result.DegradedReasons) > 0
 	result.NeedsReview = result.NeedsReviewHighest != PriorityNone
 	result.BlockedByFinding = priorityBlocks(result.Highest, options.FailOn)
 	result.BlockedByNeedsReview = priorityBlocks(result.NeedsReviewHighest, options.FailOnNeedsReview)
@@ -146,6 +150,10 @@ func RenderSummary(report review.ReviewReport, options Options) []byte {
 		fmt.Fprintf(&output, "> ❌ **Merge gate blocked pending human review.** An unresolved `%s` hypothesis met the `%s` needs-review threshold.\n\n", strings.ToUpper(string(gate.NeedsReviewHighest)), strings.ToUpper(string(options.FailOnNeedsReview)))
 	case gate.NeedsReview:
 		output.WriteString("> ⚠️ **Review completed with unresolved hypotheses requiring human review.**\n\n")
+	case gate.Degraded && len(report.Findings) > 0:
+		output.WriteString("> ⚠️ **Review completed with degraded optional stages and non-blocking findings.** Deterministic evidence remains available.\n\n")
+	case gate.Degraded:
+		output.WriteString("> ⚠️ **Review completed with degraded optional stages.** Deterministic merge-gate evidence remains available.\n\n")
 	case len(report.Findings) > 0:
 		output.WriteString("> ⚠️ **Review completed with non-blocking findings.**\n\n")
 	default:
@@ -180,6 +188,13 @@ func RenderSummary(report review.ReviewReport, options Options) []byte {
 		}
 		output.WriteByte('\n')
 	}
+	if len(gate.DegradedReasons) > 0 {
+		output.WriteString("## Degraded optional stages\n\n")
+		for _, reason := range gate.DegradedReasons {
+			fmt.Fprintf(&output, "- %s\n", markdownText(reason))
+		}
+		output.WriteString("\nThese stages reduce review coverage but do not override deterministic P0/P1 merge-gate evidence.\n\n")
+	}
 	needsReview := unresolvedCandidates(report.Verification.Candidates)
 	if len(needsReview) > 0 {
 		output.WriteString("## Needs human review\n\n")
@@ -196,7 +211,11 @@ func RenderSummary(report review.ReviewReport, options Options) []byte {
 
 	if len(report.Findings) == 0 {
 		if len(needsReview) == 0 {
-			output.WriteString("No evidence-bearing findings or unresolved review hypotheses were produced.\n")
+			if gate.Degraded {
+				output.WriteString("No evidence-bearing findings or unresolved review hypotheses were produced; optional review coverage was degraded as listed above.\n")
+			} else {
+				output.WriteString("No evidence-bearing findings or unresolved review hypotheses were produced.\n")
+			}
 		}
 		return output.Bytes()
 	}
@@ -314,7 +333,7 @@ func highestNeedsReviewPriority(candidates []review.CandidateVerification) Prior
 }
 
 func incompleteReasons(report review.ReviewReport) []string {
-	reasons := make([]string, 0, 4)
+	reasons := make([]string, 0, 2)
 	switch report.Analysis.Status {
 	case review.AnalysisScopeOnly:
 		reasons = append(reasons, "Deterministic analysis was not run.")
@@ -323,6 +342,19 @@ func incompleteReasons(report review.ReviewReport) []string {
 	case review.AnalysisFailed:
 		reasons = append(reasons, "Deterministic analysis failed.")
 	}
+	switch report.Verification.Status {
+	case review.VerificationPartial:
+		if !verificationInheritedAgentDegradation(report) {
+			reasons = append(reasons, "Candidate verification completed only partially.")
+		}
+	case review.VerificationFailed:
+		reasons = append(reasons, "Candidate verification failed.")
+	}
+	return reasons
+}
+
+func degradedReasons(report review.ReviewReport) []string {
+	reasons := make([]string, 0, 3)
 	switch report.Context.Status {
 	case review.ContextPartial:
 		reasons = append(reasons, "Repository context indexing completed only partially.")
@@ -335,13 +367,24 @@ func incompleteReasons(report review.ReviewReport) []string {
 	case review.AgentFailed:
 		reasons = append(reasons, "Reasoning Agent failed.")
 	}
-	switch report.Verification.Status {
-	case review.VerificationPartial:
-		reasons = append(reasons, "Candidate verification completed only partially.")
-	case review.VerificationFailed:
-		reasons = append(reasons, "Candidate verification failed.")
+	if verificationInheritedAgentDegradation(report) {
+		reasons = append(reasons, "Candidate verification inherited the Reasoning Agent coverage warning; its own evidence checks did not fail.")
 	}
 	return reasons
+}
+
+func verificationInheritedAgentDegradation(report review.ReviewReport) bool {
+	if report.Verification.Status != review.VerificationPartial || report.Agent.Status != review.AgentPartial || len(report.Verification.Warnings) == 0 {
+		return false
+	}
+	for _, warning := range report.Verification.Warnings {
+		switch strings.TrimSpace(warning) {
+		case "reasoning agent was partial", "reasoning agent was partial; only returned candidates were verified":
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func highestPriority(findings []review.Finding) Priority {
