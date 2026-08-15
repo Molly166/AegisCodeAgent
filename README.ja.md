@@ -9,7 +9,7 @@
 
 AegisCodeAgent は、GitHub の Pull Request 上で自動実行される Go ネイティブのコードレビュー Agent です。決定論的解析、リポジトリレベルのコンテキスト、LLM による推論、独立した検証を組み合わせ、根拠のある指摘だけを最終レビューに反映します。
 
-> **現在のマイルストーン：v0.6。** Aegis は、リポジトリネイティブな GitHub Actions Reviewer とローカル CLI として利用できます。現在は Go を主な対象とし、最初の推論 Provider として DeepSeek を採用しています。次の段階では、定量評価と本番運用に向けた堅牢化を進めます。
+> **現在のマイルストーン：v0.7。** Replay Eval Harness、セマンティック検証、明示的な Needs Review Gate、PR の変更意図コンテキスト、4 種類の Analyzer を実行する GitHub Pipeline を実装しました。Go を主な対象とし、最初の推論 Provider として DeepSeek を採用しています。
 
 ## Pull Request を作成すると何が起きますか？
 
@@ -25,10 +25,10 @@ Pull Request の作成または更新
  Git Diff と変更行スコープ
           │
           ├──────────────► 決定論的 Go Analyzer
-          │                 go test · go vet
+          │                 go test · go vet · staticcheck · gosec
           │
           └──────────────► リポジトリコンテキストエンジン
-                            AST · 型 · 呼び出し元 · テスト
+                            PR 意図 · Repository Rule · AST · 型 · 呼び出し元 · テスト
                                       │
                                       ▼
                             DeepSeek Reasoning Agent
@@ -40,7 +40,7 @@ Pull Request の作成または更新
                  P0-P3 Annotation · Job Summary · HTML レポート
 ```
 
-モデルがマージ可否を直接決定することはありません。静的解析の指摘には、あらかじめ再現可能な根拠が含まれます。モデルが生成した候補は、位置、Diff、ソーススナップショット、対象を絞った診断の検証を通過した場合にのみ、最終 Finding に昇格します。却下された仮説や結論を出せなかった仮説は監査記録に残りますが、最終結果には含まれません。
+モデルがマージ可否を直接決定することはありません。Candidate は位置、Diff、ソーススナップショット、対象を絞った診断、またはセマンティックな根拠を通過した場合のみ最終 Finding に昇格します。無効な仮説は Rejected、検証も否定もできない仮説は明示的な `Needs Review` となり、P0 はデフォルトで Merge を Block します。
 
 ## アーキテクチャ
 
@@ -51,10 +51,11 @@ Pull Request の作成または更新
 | GitHub オーケストレーション | PR イベントへの応答、信頼済み Base と正確な Head の Checkout、古い Run のキャンセル | 再現可能なレビュー用 Worktree | `.github/workflows/aegis-review.yml` |
 | Diff エンジン | Revision の安全な解決、Three-dot Diff、Rename、Binary、Hunk、変更行の解析 | 正規化済み Change Set | `internal/gitdiff/` |
 | 静的解析 | Analyzer の並行実行と Timeout、診断の正規化と重複排除 | 根拠付き Findings | `internal/analyzer/` |
-| コンテキストエンジン | Go の宣言と型関係を Index 化し、予算内で変更・関連 Symbol を順位付け | Repository Context Bundle | `internal/context/` |
+| コンテキストエンジン | PR の Title/Body/Label/Issue と Repository Guidance を Go の宣言・型関係に統合 | Repository Context Bundle | `internal/context/` |
 | Reasoning Agent | DeepSeek が読み取り専用 Tool で制限された根拠を確認し、構造化された候補を提案 | 未検証 Candidates | `internal/agent/` |
-| Verifier | Candidate の識別子と位置を検証し、対象を絞った Check を再実行して独立した根拠と照合 | Verified／Rejected／Inconclusive の判定 | `internal/verifier/` |
+| Verifier V2 | Candidate の識別子と位置を検証し、Focused Check とソース認識型 Semantic Rule を実行 | Verified／Needs Review／Rejected の判定 | `internal/verifier/` |
 | Publisher | Severity を P0-P3 に変換し、マージ閾値を適用して GitHub 出力と完全なレポートを生成 | Summary、Annotation、HTML/JSON | `internal/githubreport/`、`internal/report/` |
+| Eval Harness | Version 管理された Bug/Clean Report を Replay し、Finding と Gate の品質を計測 | Precision、Recall、F1、P0/P1 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/cases/` |
 | Credential 境界 | リポジトリ側が制御する子プロセスから Credential 形式の環境変数を除去 | Sanitized child environment | `internal/secureenv/` |
 
 ### Finding のライフサイクル
@@ -68,11 +69,11 @@ Pull Request の作成または更新
 Schema + リポジトリ境界 + 変更行の検証
       │
       ▼
-対象を絞った Test/Vet の根拠と照合
+Focused Analyzer + Semantic Evidence の照合
       │
       ├── Verified ───────────────────────────────────► 最終 Finding
       ├── Rejected ───────────────────────────────────► 監査記録のみ
-      └── Inconclusive ───────────────────────────────► 監査記録のみ
+      └── Needs Review ───────────────────────────────► 人手レビューに表示し、P0 は既定で Block
 ```
 
 最終レポートには、CLI、GitHub Publisher、HTML Renderer、JSON 自動化インターフェースで共有される安定した `ReviewReport` ドメインモデルを使用します。これにより、レビューのロジックと表示形式を分離しています。
@@ -98,7 +99,7 @@ go test ./...
 決定論的モードでは Secret は不要です。
 
 ```text
-go test + go vet + repository context + GitHub report
+go test + go vet + staticcheck + gosec + semantic verifier + GitHub report
 ```
 
 推論と検証を含む完全なフローを有効にするには、**Settings → Secrets and variables → Actions** で Repository Secret を作成します。
@@ -125,7 +126,7 @@ git push -u origin feature/my-change
 
 `feature/my-change` から `master` への Pull Request を作成します。`opened` イベントで Aegis が起動し、その後の Push ごとに `synchronize` イベントが発生して新しいレビューが始まり、古い Run はキャンセルされます。
 
-ドキュメントのみを変更する Pull Request でも Workflow は起動し、Summary とレポート Artifact が生成されます。比較対象にサポート対象のソースコード変更が含まれない場合、Aegis は DeepSeek の推論と Verifier をスキップします。これにより、決定論的 Check を維持したまま不要なモデル呼び出しを避けます。
+ドキュメントのみを変更する Pull Request でも Workflow は起動し、Summary とレポート Artifact が生成されます。サポート対象のソース根拠がない場合は不要なモデル推論を省略できますが、決定論的解析、Report、Merge Gate の意味は常に監査可能です。
 
 ### 4. 結果を確認する
 
@@ -143,6 +144,8 @@ Pull Request を開き、次の項目を確認します。
 | P1 | High | Error | はい |
 | P2 | Medium | Warning | いいえ |
 | P3 | Low / Info | Notice | いいえ |
+
+Reasoning Agent またはリポジトリ Context の劣化は Review Coverage の低下として表示され、それ自体が P0/P1 になることはありません。決定論的な静的解析または Verifier が未完了の場合は引き続き fail-closed とし、未解決の P0 仮説は独立した Needs Review Threshold で制御します。
 
 結果を強制するには、`master` の Branch Ruleset で `Aegis Code Review` を Required Status Check に設定してください。Web およびメール通知は GitHub の通知設定が担当し、Aegis 自体は別のメールサービスを実行しません。
 
@@ -192,9 +195,13 @@ cp .env.example .env
 # staticcheck と gosec がインストール済みの場合、すべての Adapter を実行
 ./aegis review --repo . --base master --head HEAD --analyzers all --output review.html
 
+# 組み込み回帰 Corpus を Replay して自己完結型 Dashboard を生成
+./aegis eval --corpus ./eval/cases --format html --output eval-report.html
+
 # 利用可能なすべての Option を確認
 ./aegis review --help
 ./aegis github --help
+./aegis eval --help
 ```
 
 ## セキュリティモデル
@@ -218,6 +225,7 @@ internal/context/      AST/type index, relationships, ranking, budgets
 internal/config/       strict JSON config and narrow dotenv loading
 internal/agent/        provider protocol, prompt, tools, reasoning loop
 internal/verifier/     candidate validation and evidence adjudication
+internal/eval/         replay corpus, expectation matching, quality dashboard
 internal/githubreport/ P0-P3 mapping, Summary, annotations, merge gate
 internal/secureenv/    child-process credential isolation
 internal/review/       shared domain model
@@ -242,14 +250,17 @@ go build ./cmd/aegis
 - 決定論的 Go Analyzer Pipeline。
 - リポジトリコンテキストエンジン。
 - 境界を設けた DeepSeek Reasoning Loop。
-- 独立した Candidate 検証。
+- Semantic Evidence と Needs Review を備えた Verifier V2。
+- Replay Eval Harness と Bug/Clean の初期回帰 Corpus。
+- PR の変更意図と Repository Guidance の Context。
+- go test、go vet、staticcheck、gosec をすべて実行する Workflow。
 - 自己完結型 HTML エビデンスレポート。
 - GitHub Actions の Trigger、Annotation、Artifact、Merge Gate。
 
 今後：
 
-- Bug/Clean PR の評価 Corpus の整備。
-- Precision、Recall、False Positive、Latency、Cost の測定。
+- 初期 Corpus を独立 Label 付きの統計的に有用な Benchmark へ拡張。
+- Live Model 比較、反復 Trial、Confidence Interval の追加。
 - 再利用可能な GitHub Action の Package 化と Release 配布。
 - 追加の Model Provider と本番向け Observability。
 

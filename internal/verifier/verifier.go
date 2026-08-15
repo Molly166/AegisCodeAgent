@@ -32,6 +32,7 @@ type Pipeline interface {
 type Config struct {
 	Repository      string
 	AnalyzerTimeout time.Duration
+	AnalyzerNames   []string
 }
 
 type Input struct {
@@ -93,12 +94,8 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 	if configuration.AnalyzerTimeout <= 0 {
 		configuration.AnalyzerTimeout = defaultAnalyzerTimeout
 	}
-	if len(input.Agent.Candidates) == 0 {
-		if input.Agent.Status == review.AgentPartial {
-			output.Verification.Status = review.VerificationPartial
-			output.Verification.Warnings = append(output.Verification.Warnings, "reasoning agent was partial")
-		}
-		return output, nil
+	if len(configuration.AnalyzerNames) == 0 {
+		configuration.AnalyzerNames = []string{analyzer.NameGoTest, analyzer.NameGoVet}
 	}
 	if err := ctx.Err(); err != nil {
 		output.Verification.Status = review.VerificationFailed
@@ -107,6 +104,18 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 	}
 
 	changedLines := analyzer.BuildChangedLineSet(resolvedRepository, input.Files)
+	semanticFindings, semanticWarnings := detectSemanticFindings(resolvedRepository, input.Files, changedLines)
+	output.Verification.Warnings = append(output.Verification.Warnings, semanticWarnings...)
+	output.Verification.Summary.SemanticFindings = len(semanticFindings)
+	if len(semanticWarnings) > 0 {
+		output.Verification.Status = review.VerificationPartial
+	}
+	if len(input.Agent.Candidates) == 0 {
+		output.PromotedFindings = append(output.PromotedFindings, semanticFindings...)
+		output.Verification.Summary.Promoted = len(output.PromotedFindings)
+		output.Verification.Warnings = uniqueStrings(output.Verification.Warnings)
+		return output, nil
+	}
 	inspected := make([]inspectedCandidate, 0, len(input.Agent.Candidates))
 	validPaths := make(map[string]struct{})
 	for _, candidate := range input.Agent.Candidates {
@@ -118,7 +127,7 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 	}
 
 	focusedFiles := selectFiles(input.Files, validPaths)
-	focusedFindings := []review.Finding{}
+	focusedFindings := append([]review.Finding(nil), semanticFindings...)
 	if len(focusedFiles) > 0 {
 		packages, packageErr := analyzer.SelectPackages(resolvedRepository, focusedFiles, analyzer.ScopeChanged)
 		if packageErr != nil {
@@ -133,7 +142,7 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 					Repository:   resolvedRepository,
 					Packages:     packages,
 					ChangedLines: analyzer.BuildChangedLineSet(resolvedRepository, focusedFiles),
-				}, []string{analyzer.NameGoTest, analyzer.NameGoVet}, analyzer.RunOptions{
+				}, configuration.AnalyzerNames, analyzer.RunOptions{
 					OnlyChangedLines: false, AnalyzerTimeout: configuration.AnalyzerTimeout,
 				})
 				if focusedErr != nil {
@@ -156,6 +165,7 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 		}
 	}
 
+	usedSemantic := make(map[string]struct{})
 	for index := range inspected {
 		item := &inspected[index]
 		if !item.valid {
@@ -164,14 +174,19 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 		}
 		existingMatches := findCorroborating(item.candidate, input.Findings)
 		focusedMatches := findCorroborating(item.candidate, focusedFindings)
+		for _, match := range focusedMatches {
+			if strings.HasPrefix(match.Source, "semantic:") {
+				usedSemantic[match.Fingerprint] = struct{}{}
+			}
+		}
 		matches := append(append([]review.Finding(nil), existingMatches...), focusedMatches...)
 		if len(matches) == 0 {
-			item.result.Verdict = review.CandidateInconclusive
-			item.result.Reason = "source and diff checks passed, but no independent deterministic diagnostic corroborated this hypothesis"
-			item.result.CalibratedConfidence = clamp(item.candidate.Confidence*0.5, 0, 0.49)
+			item.result.Verdict = review.CandidateNeedsReview
+			item.result.Reason = "source and diff checks passed, but available deterministic and semantic evidence could not confirm or reject this hypothesis; human review is required"
+			item.result.CalibratedConfidence = clamp(item.candidate.Confidence*0.65, 0, 0.69)
 			item.result.Checks = append(item.result.Checks, review.VerificationCheck{
-				Name: "deterministic-corroboration", Status: review.VerificationCheckWarning,
-				Detail: "go test, go vet, and existing analyzer findings did not produce a matching diagnostic",
+				Name: "independent-corroboration", Status: review.VerificationCheckWarning,
+				Detail: fmt.Sprintf("%s, semantic rules, and existing findings did not produce matching evidence", strings.Join(configuration.AnalyzerNames, ", ")),
 			})
 			output.Verification.Candidates = append(output.Verification.Candidates, item.result)
 			continue
@@ -196,13 +211,17 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 		}
 		output.Verification.Candidates = append(output.Verification.Candidates, item.result)
 	}
-
-	if input.Agent.Status == review.AgentPartial && output.Verification.Status == review.VerificationComplete {
-		output.Verification.Status = review.VerificationPartial
-		output.Verification.Warnings = append(output.Verification.Warnings, "reasoning agent was partial; only returned candidates were verified")
+	for _, finding := range semanticFindings {
+		if _, used := usedSemantic[finding.Fingerprint]; used {
+			continue
+		}
+		output.PromotedFindings = append(output.PromotedFindings, finding)
 	}
+
 	output.Verification.Warnings = uniqueStrings(output.Verification.Warnings)
 	output.Verification.Summary = summarize(output.Verification.Candidates)
+	output.Verification.Summary.SemanticFindings = len(semanticFindings)
+	output.Verification.Summary.Promoted = len(output.PromotedFindings)
 	return output, nil
 }
 
@@ -502,6 +521,8 @@ func summarize(candidates []review.CandidateVerification) review.VerificationSum
 			summary.Verified++
 		case review.CandidateRejected:
 			summary.Rejected++
+		case review.CandidateNeedsReview:
+			summary.NeedsReview++
 		case review.CandidateInconclusive:
 			summary.Inconclusive++
 		}

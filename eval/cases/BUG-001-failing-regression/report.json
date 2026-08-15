@@ -1,0 +1,84 @@
+{
+  "schema_version": "v6",
+  "generated_at": "2026-08-15T00:00:00Z",
+  "comparison": {
+    "repository": "AegisCodeAgent",
+    "base": "master",
+    "head": "test/failing-regression",
+    "base_commit": "base",
+    "head_commit": "head"
+  },
+  "analysis": {
+    "status": "complete",
+    "completed_stages": ["diff", "static-analysis"],
+    "tools": [
+      {"name": "go-test", "status": "findings", "duration_ms": 320, "findings": 1, "suppressed": 0}
+    ]
+  },
+  "context": {
+    "status": "complete",
+    "change_intent": {
+      "source": "github_pull_request",
+      "title": "Change behavior",
+      "labels": ["bug"],
+      "linked_issues": ["#18"],
+      "repository_guidance": [],
+      "truncated": false
+    },
+    "packages": ["example.com/aegisfixture"],
+    "changed_symbols": [],
+    "related_symbols": [],
+    "relations": [],
+    "stats": {},
+    "truncated": false,
+    "warnings": []
+  },
+  "agent": {
+    "status": "skipped",
+    "thinking": false,
+    "steps": 0,
+    "duration_ms": 0,
+    "usage": {},
+    "candidates": [],
+    "tool_calls": [],
+    "warnings": []
+  },
+  "verification": {
+    "status": "complete",
+    "duration_ms": 20,
+    "summary": {"candidates": 0, "verified": 0, "rejected": 0, "needs_review": 0, "inconclusive": 0, "semantic_findings": 0, "promoted": 0},
+    "tools": [],
+    "candidates": [],
+    "warnings": []
+  },
+  "summary": {
+    "changed_files": 1,
+    "additions": 1,
+    "deletions": 1,
+    "findings": 1,
+    "critical": 0,
+    "high": 1,
+    "medium": 0,
+    "low": 0,
+    "info": 0
+  },
+  "files": [
+    {"new_path": "main_test.go", "status": "modified", "binary": false, "stats": {"additions": 1, "deletions": 1}, "hunks": []}
+  ],
+  "findings": [
+    {
+      "id": "AEGIS-TEST-REGRESSION",
+      "rule_id": "go-test",
+      "title": "Go test failure introduced by changed code",
+      "description": "The affected package test exits unsuccessfully on the reviewed head.",
+      "severity": "high",
+      "category": "testing",
+      "location": {"path": "main_test.go", "start_line": 6, "end_line": 6},
+      "evidence": "TestValue: intentional regression",
+      "suggestion": "Restore the expected behavior or update the test only when the contract intentionally changed.",
+      "confidence": 0.99,
+      "source": "go-test",
+      "fingerprint": "bug-001-regression"
+    }
+  ]
+}

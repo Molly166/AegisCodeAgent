@@ -9,7 +9,7 @@
 
 AegisCodeAgent is a Go-native code-review agent that runs automatically on GitHub pull requests. It combines deterministic analysis, repository-level context, LLM reasoning, and independent verification so that only evidence-bearing findings reach the final review.
 
-> **Current milestone: v0.6.** Aegis is usable today as a repository-native GitHub Actions reviewer and as a local CLI. It is Go-focused, uses DeepSeek as its first reasoning provider, and is moving next toward quantitative evaluation and production hardening.
+> **Current milestone: v0.7.** Aegis now includes a replay Eval Harness, semantic verification, explicit Needs Review gating, PR-intent context, and a four-analyzer GitHub pipeline. It remains Go-focused and uses DeepSeek as its first reasoning provider.
 
 ## What happens when you open a pull request?
 
@@ -25,10 +25,10 @@ Pull request opened or updated
 Git diff and changed-line scope
           │
           ├──────────────► deterministic Go analyzers
-          │                 go test · go vet
+          │                 go test · go vet · staticcheck · gosec
           │
           └──────────────► repository context engine
-                            AST · types · callers · tests
+                            PR intent · rules · AST · types · callers · tests
                                       │
                                       ▼
                            DeepSeek reasoning agent
@@ -40,7 +40,7 @@ Git diff and changed-line scope
                  P0-P3 annotations · Job Summary · HTML report
 ```
 
-The model does not directly decide the merge result. Static findings already carry reproducible evidence. Model-generated candidates must pass location, diff, source-snapshot, and focused diagnostic checks before they can be promoted. Rejected and inconclusive hypotheses are preserved for audit but withheld from final findings.
+The model does not directly decide the merge result. Static findings already carry reproducible evidence. Model-generated candidates must pass location, diff, source-snapshot, focused diagnostics, or semantic evidence checks before promotion. Invalid hypotheses are rejected; unresolved hypotheses become visible `Needs Review` items and P0 items block by default instead of being reported as a clean review.
 
 ## Architecture
 
@@ -51,10 +51,11 @@ The system is split into stages with explicit inputs and outputs:
 | GitHub orchestration | React to PR events, check out trusted base and exact head commits, cancel stale runs | Reproducible review workspace | `.github/workflows/aegis-review.yml` |
 | Diff engine | Resolve revisions safely and parse three-dot Git diffs, renames, binary files, hunks, and changed lines | Normalized change set | `internal/gitdiff/` |
 | Static analysis | Run analyzers concurrently with timeouts, normalize and deduplicate diagnostics | Evidence-backed findings | `internal/analyzer/` |
-| Context engine | Index Go declarations and type relationships, then rank changed and related symbols under a budget | Repository context bundle | `internal/context/` |
+| Context engine | Combine PR title/body/labels/issues and repository guidance with ranked Go declarations and type relationships | Repository context bundle | `internal/context/` |
 | Reasoning agent | Let DeepSeek inspect bounded evidence through read-only tools and propose structured candidates | Unverified candidates | `internal/agent/` |
-| Verifier | Validate candidate identity and location, rerun focused checks, correlate independent evidence | Verified/rejected/inconclusive verdicts | `internal/verifier/` |
+| Verifier V2 | Validate identity/location, rerun focused checks, execute source-aware semantic rules, and correlate independent evidence | Verified/needs-review/rejected verdicts | `internal/verifier/` |
 | Publisher | Map severity to P0-P3, apply the merge threshold, render GitHub output and full reports | Summary, annotations, HTML/JSON | `internal/githubreport/`, `internal/report/` |
+| Eval Harness | Replay versioned buggy/clean reports, match expectations, and score findings plus gate behavior | Precision, recall, F1, P0/P1 recall, gate accuracy, false-block rate | `internal/eval/`, `eval/cases/` |
 | Credential boundary | Remove credential-shaped variables from repository-controlled subprocesses | Sanitized child environment | `internal/secureenv/` |
 
 ### Finding lifecycle
@@ -68,11 +69,11 @@ model candidate
 schema + repository boundary + changed-line validation
       │
       ▼
-focused test/vet evidence correlation
+focused analyzer + semantic evidence correlation
       │
       ├── verified ────────────────────────────────────► final finding
       ├── rejected ────────────────────────────────────► audit trail only
-      └── inconclusive ────────────────────────────────► audit trail only
+      └── needs review ────────────────────────────────► visible human-review queue; P0 blocks by default
 ```
 
 The final report is a stable `ReviewReport` domain model shared by the CLI, GitHub publisher, HTML renderer, and JSON automation interface. This keeps review logic independent from presentation.
@@ -98,7 +99,7 @@ Make sure GitHub Actions is enabled under **Settings → Actions → General**.
 No secret is required for the deterministic mode:
 
 ```text
-go test + go vet + repository context + GitHub report
+go test + go vet + staticcheck + gosec + semantic verifier + GitHub report
 ```
 
 For the full reasoning and verification path, create a repository secret under **Settings → Secrets and variables → Actions**:
@@ -125,7 +126,7 @@ git push -u origin feature/my-change
 
 Open a pull request from `feature/my-change` to `master`. The `opened` event starts Aegis; every later push emits a `synchronize` event, starts a fresh review, and cancels the stale run.
 
-Documentation-only pull requests still trigger the workflow and receive a summary and report artifact. Aegis skips the DeepSeek reasoning and verification stages when the comparison contains no supported source-code changes, avoiding unnecessary model calls without weakening deterministic checks.
+Documentation-only pull requests still trigger the workflow and receive a summary and report artifact. Aegis may skip unnecessary model reasoning when there is no supported source-code evidence, while deterministic analysis, report publication, and merge-gate semantics remain auditable.
 
 ### 4. Read the result
 
@@ -143,6 +144,8 @@ Open the pull request and inspect:
 | P1 | High | Error | Yes |
 | P2 | Medium | Warning | No |
 | P3 | Low / Info | Notice | No |
+
+Reasoning Agent or repository-context degradation is reported as reduced coverage and does not become a P0/P1 by itself. Deterministic analysis or Verifier incompleteness still fails closed, while unresolved P0 hypotheses follow the separate needs-review threshold.
 
 To enforce the result, add `Aegis Code Review` as a required status check in the `master` branch ruleset. GitHub's own notification settings provide web and email notifications; Aegis does not run a separate mail service.
 
@@ -192,9 +195,13 @@ Useful commands:
 # Run every adapter when staticcheck and gosec are installed
 ./aegis review --repo . --base master --head HEAD --analyzers all --output review.html
 
+# Replay the checked-in regression corpus and generate a self-contained dashboard
+./aegis eval --corpus ./eval/cases --format html --output eval-report.html
+
 # Discover every available option
 ./aegis review --help
 ./aegis github --help
+./aegis eval --help
 ```
 
 ## Security model
@@ -218,6 +225,7 @@ internal/context/      AST/type index, relationships, ranking, budgets
 internal/config/       strict JSON config and narrow dotenv loading
 internal/agent/        provider protocol, prompt, tools, reasoning loop
 internal/verifier/     candidate validation and evidence adjudication
+internal/eval/         replay corpus, matching, quality metrics, HTML dashboard
 internal/githubreport/ P0-P3 mapping, Summary, annotations, merge gate
 internal/secureenv/    child-process credential isolation
 internal/review/       shared domain model
@@ -242,14 +250,17 @@ Completed:
 - deterministic Go analyzer pipeline;
 - repository context engine;
 - bounded DeepSeek reasoning loop;
-- independent candidate verification;
+- semantic Verifier V2 with explicit Needs Review outcomes;
+- replay Eval Harness and seed buggy/clean regression corpus;
+- PR-intent and repository-guidance context;
+- full go test, go vet, staticcheck, and gosec workflow execution;
 - self-contained HTML evidence report;
 - GitHub Actions trigger, annotations, artifact, and merge gate.
 
 Next:
 
-- curated buggy/clean PR evaluation corpus;
-- precision, recall, false-positive, latency, and cost measurements;
+- grow the seed corpus into a statistically useful, independently labeled benchmark;
+- add live-model comparison, repeated trials, and confidence intervals;
 - reusable GitHub Action packaging and release distribution;
 - additional model providers and production observability.
 

@@ -1,0 +1,21 @@
+{
+  "schema_version": "v1",
+  "id": "BUG-001",
+  "title": "Changed regression test fails",
+  "description": "A deterministic test failure introduced by the PR must be reported as P1 and block the gate.",
+  "tags": ["bug", "testing", "p1"],
+  "report": "report.json",
+  "expected_findings": [
+    {
+      "severity": "high",
+      "category": "testing",
+      "path": "main_test.go",
+      "start_line": 6,
+      "rule_id": "go-test",
+      "title_contains": "test failure"
+    }
+  ],
+  "expected_gate": "blocked",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

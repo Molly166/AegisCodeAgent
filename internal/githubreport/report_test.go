@@ -40,11 +40,45 @@ func TestIncompleteReviewBlocksIndependently(t *testing.T) {
 	report.Agent.Status = review.AgentPartial
 	report.Verification.Status = review.VerificationFailed
 	result := Evaluate(report, PriorityNone, true)
-	if !result.Blocked || !result.Incomplete || len(result.IncompleteReasons) != 4 {
+	if !result.Blocked || !result.Incomplete || len(result.IncompleteReasons) != 2 || !result.Degraded || len(result.DegradedReasons) != 2 {
 		t.Fatalf("unexpected incomplete result: %+v", result)
 	}
 	if Evaluate(report, PriorityNone, false).Blocked {
 		t.Fatal("incomplete report blocked when fail-on-incomplete was disabled")
+	}
+}
+
+func TestP2AndAgentDegradationDoNotBlockP1Gate(t *testing.T) {
+	report := review.NewReport(review.Comparison{}, []review.ChangedFile{{NewPath: "main.go"}}, []review.Finding{{
+		Title: "Potential file inclusion", Severity: review.SeverityMedium,
+		Location: review.Location{Path: "main.go", StartLine: 10}, Source: "gosec",
+	}})
+	report.Context = review.EmptyContextBundle(review.ContextComplete)
+	report.Agent = review.EmptyAgentRun(review.AgentPartial)
+	report.Verification = review.EmptyVerificationRun(review.VerificationPartial)
+	report.Verification.Warnings = []string{"reasoning agent was partial"}
+
+	result := EvaluateWithOptions(report, Options{
+		FailOn: PriorityP1, FailOnNeedsReview: PriorityP0, FailOnIncomplete: true,
+	})
+	if result.Blocked || result.Incomplete || !result.Degraded || result.Highest != PriorityP2 {
+		t.Fatalf("P2 finding or optional Agent degradation blocked the P1 gate: %+v", result)
+	}
+	summary := string(RenderSummary(report, Options{
+		FailOn: PriorityP1, FailOnNeedsReview: PriorityP0, FailOnIncomplete: true,
+	}))
+	for _, expected := range []string{"degraded optional stages", "P2", "P2/P3 findings remain visible without blocking"} {
+		if !strings.Contains(summary, expected) {
+			t.Errorf("degraded summary does not contain %q:\n%s", expected, summary)
+		}
+	}
+
+	report.Verification.Warnings = append(report.Verification.Warnings, "semantic source parsing failed")
+	unsafe := EvaluateWithOptions(report, Options{
+		FailOn: PriorityP1, FailOnNeedsReview: PriorityP0, FailOnIncomplete: true,
+	})
+	if !unsafe.Blocked || !unsafe.Incomplete {
+		t.Fatalf("real Verifier incompleteness was waived with Agent degradation: %+v", unsafe)
 	}
 }
 
@@ -54,6 +88,40 @@ func TestSkippedOptionalStagesDoNotBlock(t *testing.T) {
 	result := Evaluate(report, PriorityP1, true)
 	if result.Blocked || result.Incomplete {
 		t.Fatalf("skipped optional reasoning stage blocked the review: %+v", result)
+	}
+}
+
+func TestNeedsReviewIsVisibleAndCanBlock(t *testing.T) {
+	report := review.NewReport(review.Comparison{Base: "master", Head: "feature"}, []review.ChangedFile{{NewPath: "main.go"}}, nil)
+	report.Context = review.EmptyContextBundle(review.ContextComplete)
+	report.Agent = review.EmptyAgentRun(review.AgentComplete)
+	report.Verification = review.EmptyVerificationRun(review.VerificationComplete)
+	report.Verification.Summary = review.VerificationSummary{Candidates: 1, NeedsReview: 1}
+	report.Verification.Candidates = []review.CandidateVerification{{
+		CandidateID: "AGENT-1", Title: "Possible credential leak", Severity: review.SeverityCritical,
+		Location: review.Location{Path: "main.go", StartLine: 10}, Verdict: review.CandidateNeedsReview,
+		Reason: "semantic evidence is unresolved",
+	}}
+
+	gate := EvaluateWithOptions(report, Options{FailOn: PriorityP1, FailOnNeedsReview: PriorityP0, FailOnIncomplete: true})
+	if !gate.Blocked || !gate.BlockedByNeedsReview || gate.NeedsReviewHighest != PriorityP0 {
+		t.Fatalf("P0 needs-review hypothesis did not block: %+v", gate)
+	}
+	if relaxed := EvaluateWithOptions(report, Options{FailOn: PriorityP1, FailOnNeedsReview: PriorityNone}); relaxed.Blocked || !relaxed.NeedsReview {
+		t.Fatalf("disabled needs-review gate hid or blocked the hypothesis: %+v", relaxed)
+	}
+	summary := string(RenderSummary(report, Options{FailOn: PriorityP1, FailOnNeedsReview: PriorityP0}))
+	for _, expected := range []string{"blocked pending human review", "Needs human review", "Possible credential leak", "P0", "1 needs review"} {
+		if !strings.Contains(summary, expected) {
+			t.Errorf("needs-review summary does not contain %q:\n%s", expected, summary)
+		}
+	}
+	if strings.Contains(summary, "completed without findings") {
+		t.Fatalf("unresolved review was presented as clean:\n%s", summary)
+	}
+	annotations := string(RenderAnnotations(report, 10))
+	if !strings.Contains(annotations, "NEEDS REVIEW") || !strings.Contains(annotations, "file=main.go") {
+		t.Fatalf("needs-review annotation missing: %s", annotations)
 	}
 }
 

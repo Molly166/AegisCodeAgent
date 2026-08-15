@@ -69,8 +69,24 @@ type ContextStats struct {
 	EstimatedTokens     int `json:"estimated_tokens"`
 }
 
+type IntentDocument struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
+type ChangeIntent struct {
+	Source             string           `json:"source,omitempty"`
+	Title              string           `json:"title,omitempty"`
+	Description        string           `json:"description,omitempty"`
+	Labels             []string         `json:"labels"`
+	LinkedIssues       []string         `json:"linked_issues"`
+	RepositoryGuidance []IntentDocument `json:"repository_guidance"`
+	Truncated          bool             `json:"truncated"`
+}
+
 type ContextBundle struct {
 	Status         ContextStatus     `json:"status"`
+	Intent         ChangeIntent      `json:"change_intent"`
 	Packages       []string          `json:"packages"`
 	ChangedSymbols []ContextSymbol   `json:"changed_symbols"`
 	RelatedSymbols []ContextSymbol   `json:"related_symbols"`
@@ -82,7 +98,10 @@ type ContextBundle struct {
 
 func EmptyContextBundle(status ContextStatus) ContextBundle {
 	return ContextBundle{
-		Status:         status,
+		Status: status,
+		Intent: ChangeIntent{
+			Labels: []string{}, LinkedIssues: []string{}, RepositoryGuidance: []IntentDocument{},
+		},
 		Packages:       []string{},
 		ChangedSymbols: []ContextSymbol{},
 		RelatedSymbols: []ContextSymbol{},
