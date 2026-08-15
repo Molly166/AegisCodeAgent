@@ -220,6 +220,29 @@ func TestVerificationFailureAndPartialAreVisibleInVerdict(t *testing.T) {
 	}
 }
 
+func TestNeedsReviewCannotRenderAsNoFindings(t *testing.T) {
+	reviewReport := review.NewReport(review.Comparison{}, nil, nil)
+	reviewReport.Verification = review.EmptyVerificationRun(review.VerificationComplete)
+	reviewReport.Verification.Summary = review.VerificationSummary{Candidates: 1, NeedsReview: 1}
+	reviewReport.Verification.Candidates = []review.CandidateVerification{{
+		Title: "Possible authorization bypass", Severity: review.SeverityCritical,
+		Location: review.Location{Path: "auth.go", StartLine: 20}, Verdict: review.CandidateNeedsReview,
+	}}
+	if got := riskClass(reviewReport); got != "critical" {
+		t.Fatalf("riskClass() = %q, want critical", got)
+	}
+	if got := riskLabel(reviewReport); got != "Needs review" {
+		t.Fatalf("riskLabel() = %q, want Needs review", got)
+	}
+	html, err := RenderHTML(reviewReport)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(html), "NEEDS REVIEW") || strings.Contains(string(html), ">No findings<") {
+		t.Fatalf("needs-review HTML was presented as clean")
+	}
+}
+
 func TestIsSupported(t *testing.T) {
 	for _, format := range []string{"html", "markdown", "md", "json", "HTML"} {
 		if !IsSupported(format) {

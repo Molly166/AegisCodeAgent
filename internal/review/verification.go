@@ -12,8 +12,11 @@ const (
 type CandidateVerdict string
 
 const (
-	CandidateVerified     CandidateVerdict = "verified"
-	CandidateRejected     CandidateVerdict = "rejected"
+	CandidateVerified    CandidateVerdict = "verified"
+	CandidateRejected    CandidateVerdict = "rejected"
+	CandidateNeedsReview CandidateVerdict = "needs_review"
+	// CandidateInconclusive is retained so legacy in-memory reports cannot be
+	// rendered or gated as clean. Verifier V2 emits CandidateNeedsReview.
 	CandidateInconclusive CandidateVerdict = "inconclusive"
 )
 
@@ -47,11 +50,13 @@ type CandidateVerification struct {
 }
 
 type VerificationSummary struct {
-	Candidates   int `json:"candidates"`
-	Verified     int `json:"verified"`
-	Rejected     int `json:"rejected"`
-	Inconclusive int `json:"inconclusive"`
-	Promoted     int `json:"promoted"`
+	Candidates       int `json:"candidates"`
+	Verified         int `json:"verified"`
+	Rejected         int `json:"rejected"`
+	NeedsReview      int `json:"needs_review"`
+	Inconclusive     int `json:"inconclusive"`
+	SemanticFindings int `json:"semantic_findings"`
+	Promoted         int `json:"promoted"`
 }
 
 type VerificationRun struct {

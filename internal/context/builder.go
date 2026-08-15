@@ -29,10 +29,12 @@ type Budget struct {
 }
 
 type Input struct {
-	Repository string
-	Packages   []string
-	Files      []review.ChangedFile
-	Budget     Budget
+	Repository      string
+	Packages        []string
+	Files           []review.ChangedFile
+	Budget          Budget
+	GitHubEventPath string
+	IntentMaxBytes  int
 }
 
 type Builder struct {
@@ -47,12 +49,6 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 	if strings.TrimSpace(input.Repository) == "" {
 		return review.ContextBundle{}, errors.New("repository path is required")
 	}
-	if len(input.Packages) == 0 {
-		return review.EmptyContextBundle(review.ContextComplete), nil
-	}
-	if _, err := b.runner.LookPath("go"); err != nil {
-		return review.ContextBundle{}, errors.New("go is not installed or not available on PATH")
-	}
 	repository, err := filepath.Abs(input.Repository)
 	if err != nil {
 		return review.ContextBundle{}, fmt.Errorf("resolve repository path: %w", err)
@@ -60,6 +56,21 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 	repository, err = filepath.EvalSymlinks(repository)
 	if err != nil {
 		return review.ContextBundle{}, fmt.Errorf("resolve repository symlinks: %w", err)
+	}
+	intent, intentWarnings := BuildChangeIntent(repository, input.GitHubEventPath, input.IntentMaxBytes)
+	if len(input.Packages) == 0 {
+		bundle := review.EmptyContextBundle(review.ContextComplete)
+		bundle.Intent = intent
+		bundle.Truncated = intent.Truncated
+		bundle.Stats.EstimatedTokens = estimatedIntentTokens(intent)
+		bundle.Warnings = append(bundle.Warnings, intentWarnings...)
+		if len(bundle.Warnings) > 0 {
+			bundle.Status = review.ContextPartial
+		}
+		return bundle, nil
+	}
+	if _, err := b.runner.LookPath("go"); err != nil {
+		return review.ContextBundle{}, errors.New("go is not installed or not available on PATH")
 	}
 	budget := normalizeBudget(input.Budget)
 	packages, err := b.loadPackages(ctx, repository, input.Packages)
@@ -80,6 +91,10 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 	index.buildTypeInformation()
 	index.buildRelations()
 	bundle := index.buildBundle(input.Files)
+	bundle.Intent = intent
+	bundle.Truncated = bundle.Truncated || intent.Truncated
+	bundle.Stats.EstimatedTokens += estimatedIntentTokens(intent)
+	bundle.Warnings = append(bundle.Warnings, intentWarnings...)
 	if index.typeCheckFailures > 0 {
 		bundle.Warnings = append(bundle.Warnings, fmt.Sprintf(
 			"%d package(s) used AST fallback because complete go/types information was unavailable",
@@ -91,6 +106,14 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 		bundle.Status = review.ContextPartial
 	}
 	return bundle, nil
+}
+
+func estimatedIntentTokens(intent review.ChangeIntent) int {
+	encoded, err := json.Marshal(intent)
+	if err != nil {
+		return 0
+	}
+	return (len(encoded) + 3) / 4
 }
 
 func (b Builder) loadExports(ctx context.Context, repository string, patterns []string) map[string]string {

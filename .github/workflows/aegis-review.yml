@@ -20,6 +20,7 @@ jobs:
     env:
       AEGIS_ARTIFACT_NAME: aegis-review-report
       AEGIS_FAIL_ON: p1
+      AEGIS_FAIL_ON_NEEDS_REVIEW: p0
 
     steps:
       # Build the reviewer from the trusted PR base, never from code that is
@@ -54,9 +55,18 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v7
         with:
-          go-version-file: reviewer/go.mod
+          go-version: '1.26.x'
           cache-dependency-path: reviewer/go.mod
           cache: true
+
+      - name: Install pinned static analyzers
+        env:
+          GOBIN: ${{ github.workspace }}/bin/analyzers
+        run: |
+          mkdir -p "$GOBIN"
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+          echo "$GOBIN" >> "$GITHUB_PATH"
 
       - name: Build trusted Aegis reviewer
         working-directory: reviewer
@@ -66,7 +76,7 @@ jobs:
 
       # This fallback is used only by the pull request that first introduces
       # the GitHub publisher. Review analysis still runs with the base binary,
-      # and reasoning secrets stay disabled until the hardened v0.6 reviewer
+      # and reasoning secrets stay disabled until the hardened reviewer
       # has landed on the base branch.
       - name: Select trusted publisher
         id: toolchain
@@ -75,6 +85,12 @@ jobs:
           if "$GITHUB_WORKSPACE/bin/aegis" github --help >/dev/null 2>&1; then
             echo "publisher=$GITHUB_WORKSPACE/bin/aegis" >> "$GITHUB_OUTPUT"
             echo "secure_reasoning=true" >> "$GITHUB_OUTPUT"
+            if "$GITHUB_WORKSPACE/bin/aegis" github --help 2>&1 | grep -q -- '--fail-on-needs-review'; then
+              echo "needs_review_gate=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "needs_review_gate=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Aegis compatibility mode::The trusted base publisher predates Needs Review gating. The new gate activates after this version lands on the base branch."
+            fi
           else
             echo "::notice title=Aegis bootstrap mode::The base branch predates the GitHub publisher. This run is static-only and uses the proposed publisher solely to render existing JSON evidence."
             (
@@ -83,6 +99,7 @@ jobs:
             )
             echo "publisher=$GITHUB_WORKSPACE/bin/aegis-publisher" >> "$GITHUB_OUTPUT"
             echo "secure_reasoning=false" >> "$GITHUB_OUTPUT"
+            echo "needs_review_gate=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Review pull-request changes
@@ -116,6 +133,7 @@ jobs:
             --repo "$GITHUB_WORKSPACE/target" \
             --base "$BASE_SHA" \
             --head "$HEAD_SHA" \
+            --analyzers all \
             --format json \
             --output "$GITHUB_WORKSPACE/artifacts/review.json" \
             "${agent_args[@]}"
@@ -133,6 +151,10 @@ jobs:
         shell: bash
         run: |
           summary_path="$GITHUB_WORKSPACE/artifacts/review-summary.md"
+          needs_review_args=()
+          if [[ "${{ steps.toolchain.outputs.needs_review_gate }}" == "true" ]]; then
+            needs_review_args=(--fail-on-needs-review "$AEGIS_FAIL_ON_NEEDS_REVIEW")
+          fi
           set +e
           "${{ steps.toolchain.outputs.publisher }}" github \
             --report "$GITHUB_WORKSPACE/artifacts/review.json" \
@@ -141,7 +163,8 @@ jobs:
             --artifact-name "$AEGIS_ARTIFACT_NAME" \
             --fail-on "$AEGIS_FAIL_ON" \
             --fail-on-incomplete=true \
-            --max-annotations 50
+            --max-annotations 50 \
+            "${needs_review_args[@]}"
           publish_exit=$?
           set -e
 

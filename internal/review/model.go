@@ -1,8 +1,12 @@
 package review
 
-import "time"
+import (
+	"fmt"
+	"time"
+)
 
-const SchemaVersion = "v5"
+const SchemaVersion = "v6"
+const PreviousSchemaVersion = "v5"
 
 type Severity string
 
@@ -224,4 +228,42 @@ func (r *ReviewReport) RecalculateSummary() {
 		}
 	}
 	r.Summary = summary
+}
+
+// UpgradeReport applies additive schema migrations at trust boundaries. V5's
+// inconclusive candidates become explicit Needs Review items so an old report
+// can never be reinterpreted as a clean V6 verdict.
+func UpgradeReport(report *ReviewReport) error {
+	switch report.SchemaVersion {
+	case SchemaVersion:
+		return nil
+	case PreviousSchemaVersion:
+		migratedNeedsReview := 0
+		for index := range report.Verification.Candidates {
+			if report.Verification.Candidates[index].Verdict == CandidateInconclusive {
+				report.Verification.Candidates[index].Verdict = CandidateNeedsReview
+			}
+			if report.Verification.Candidates[index].Verdict == CandidateNeedsReview {
+				migratedNeedsReview++
+			}
+		}
+		report.Verification.Summary.NeedsReview += report.Verification.Summary.Inconclusive
+		if report.Verification.Summary.NeedsReview < migratedNeedsReview {
+			report.Verification.Summary.NeedsReview = migratedNeedsReview
+		}
+		report.Verification.Summary.Inconclusive = 0
+		if report.Context.Intent.Labels == nil {
+			report.Context.Intent.Labels = []string{}
+		}
+		if report.Context.Intent.LinkedIssues == nil {
+			report.Context.Intent.LinkedIssues = []string{}
+		}
+		if report.Context.Intent.RepositoryGuidance == nil {
+			report.Context.Intent.RepositoryGuidance = []IntentDocument{}
+		}
+		report.SchemaVersion = SchemaVersion
+		return nil
+	default:
+		return fmt.Errorf("review schema %q is incompatible with %q", report.SchemaVersion, SchemaVersion)
+	}
 }

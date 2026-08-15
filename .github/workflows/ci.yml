@@ -30,5 +30,8 @@ jobs:
       - name: Run tests with race detector
         run: go test -race -coverprofile=coverage.out ./...
 
+      - name: Run replay eval regression corpus
+        run: go run ./cmd/aegis eval --corpus ./eval/cases --format json --output /tmp/aegis-eval.json
+
       - name: Build CLI
         run: go build -trimpath -o /tmp/aegis ./cmd/aegis

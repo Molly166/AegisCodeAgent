@@ -82,7 +82,7 @@ func TestVerifierPromotesOnlyFocusedCorroborationAndCapsSeverity(t *testing.T) {
 	}
 }
 
-func TestVerifierKeepsUnsupportedCandidateInconclusive(t *testing.T) {
+func TestVerifierKeepsUnsupportedCandidateForHumanReview(t *testing.T) {
 	repository, files, candidate := verificationFixture(t)
 	pipeline := &fakePipeline{output: analyzer.Output{Analysis: completeFocusedAnalysis()}}
 	output, err := New(pipeline).Run(context.Background(), Config{Repository: repository}, Input{
@@ -92,8 +92,95 @@ func TestVerifierKeepsUnsupportedCandidateInconclusive(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := output.Verification.Candidates[0]
-	if result.Verdict != review.CandidateInconclusive || result.CalibratedConfidence > 0.49 || len(output.PromotedFindings) != 0 {
+	if result.Verdict != review.CandidateNeedsReview || result.CalibratedConfidence > 0.69 || output.Verification.Summary.NeedsReview != 1 || len(output.PromotedFindings) != 0 {
 		t.Fatalf("unsupported candidate escaped strict verification: %+v", output)
+	}
+}
+
+func TestVerifierSemanticEvidenceBlocksCredentialLeakWithoutAgentCandidate(t *testing.T) {
+	repository, files := semanticCredentialFixture(t)
+	output, err := New(&fakePipeline{}).Run(context.Background(), Config{Repository: repository}, Input{
+		Files: files, Agent: review.EmptyAgentRun(review.AgentSkipped),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.PromotedFindings) != 1 || output.PromotedFindings[0].Severity != review.SeverityCritical {
+		t.Fatalf("semantic credential leak was not promoted as P0: %+v", output)
+	}
+	if output.Verification.Summary.SemanticFindings != 1 || output.Verification.Summary.Promoted != 1 {
+		t.Fatalf("semantic verification summary is incomplete: %+v", output.Verification.Summary)
+	}
+}
+
+func TestVerifierCorroboratesAgentCandidateWithSemanticEvidence(t *testing.T) {
+	repository, files := semanticCredentialFixture(t)
+	candidate := review.CandidateFinding{
+		Title: "Credential exposed to untrusted child process", Description: "The API key is copied into a child environment.",
+		Severity: review.SeverityCritical, Category: review.CategorySecurity,
+		Location: review.Location{Path: "main.go", StartLine: 11, EndLine: 11},
+		Evidence: "DEEPSEEK_API_KEY reaches process.Env", Suggestion: "Remove the credential.", Confidence: 0.96,
+	}
+	refreshCandidateIdentity(&candidate)
+	pipeline := &fakePipeline{output: analyzer.Output{Analysis: completeFocusedAnalysis()}}
+	output, err := New(pipeline).Run(context.Background(), Config{Repository: repository}, Input{Files: files, Agent: agentWith(candidate)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Verification.Summary.Verified != 1 || output.Verification.Summary.NeedsReview != 0 || len(output.PromotedFindings) != 1 {
+		t.Fatalf("semantic evidence did not verify candidate: %+v", output)
+	}
+	if finding := output.PromotedFindings[0]; finding.Severity != review.SeverityCritical || finding.Source != "verifier:semantic:credential-flow" {
+		t.Fatalf("unexpected semantic promotion: %+v", finding)
+	}
+}
+
+func TestVerifierSemanticRuleDoesNotFlagArbitraryEnvField(t *testing.T) {
+	repository := t.TempDir()
+	content := `package sample
+
+import "os"
+
+type Config struct { Env []string }
+func Run(config *Config) {
+	config.Env = append(config.Env, "SERVICE_TOKEN="+os.Getenv("SERVICE_TOKEN"))
+}
+
+func TestVerifierFailsClosedWhenSemanticSourceCannotBeParsed(t *testing.T) {
+	repository := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repository, "main.go"), []byte("package sample\nfunc broken( {\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := []review.ChangedFile{{
+		NewPath: "main.go", Status: review.FileStatusModified,
+		Hunks: []review.Hunk{{NewStart: 2, NewLines: 1, Lines: []review.DiffLine{{Kind: review.LineAddition, NewLine: 2}}}},
+	}}
+	output, err := New(&fakePipeline{}).Run(context.Background(), Config{Repository: repository}, Input{
+		Files: files, Agent: review.EmptyAgentRun(review.AgentSkipped),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output.Verification.Status != review.VerificationPartial || len(output.Verification.Warnings) == 0 {
+		t.Fatalf("semantic parse failure did not fail closed: %+v", output.Verification)
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(repository, "main.go"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files := []review.ChangedFile{{
+		NewPath: "main.go", Status: review.FileStatusModified,
+		Hunks: []review.Hunk{{NewStart: 7, NewLines: 1, Lines: []review.DiffLine{{Kind: review.LineAddition, NewLine: 7}}}},
+	}}
+	output, err := New(&fakePipeline{}).Run(context.Background(), Config{Repository: repository}, Input{
+		Files: files, Agent: review.EmptyAgentRun(review.AgentSkipped),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output.PromotedFindings) != 0 || output.Verification.Summary.SemanticFindings != 0 {
+		t.Fatalf("arbitrary Env field was treated as a child-process sink: %+v", output)
 	}
 }
 
@@ -181,6 +268,34 @@ func verificationFixture(t *testing.T) (string, []review.ChangedFile, review.Can
 	}
 	refreshCandidateIdentity(&candidate)
 	return repository, files, candidate
+}
+
+func semanticCredentialFixture(t *testing.T) (string, []review.ChangedFile) {
+	t.Helper()
+	repository := t.TempDir()
+	content := `package sample
+
+import (
+	"os"
+	"os/exec"
+)
+
+func ForUntrustedChild(environment []string) []string { return environment }
+func Run() {
+	process := exec.Command("helper")
+	process.Env = append(ForUntrustedChild(os.Environ()), "AEGIS_REVIEW_TOKEN="+os.Getenv("DEEPSEEK_API_KEY"))
+}
+`
+	if err := os.WriteFile(filepath.Join(repository, "main.go"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return repository, []review.ChangedFile{{
+		NewPath: "main.go", Status: review.FileStatusModified, Stats: review.FileStats{Additions: 1},
+		Hunks: []review.Hunk{{NewStart: 11, NewLines: 1, Lines: []review.DiffLine{{
+			Kind: review.LineAddition, NewLine: 11,
+			Content: `process.Env = append(ForUntrustedChild(os.Environ()), "AEGIS_REVIEW_TOKEN="+os.Getenv("DEEPSEEK_API_KEY"))`,
+		}}}},
+	}}
 }
 
 func refreshCandidateIdentity(candidate *review.CandidateFinding) {

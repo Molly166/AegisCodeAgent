@@ -9,7 +9,7 @@
 
 AegisCodeAgent es un agente de revisión de código nativo de Go que se ejecuta automáticamente en los Pull Requests de GitHub. Combina análisis determinista, contexto a nivel de repositorio, razonamiento con LLM y verificación independiente para que solo los hallazgos respaldados por evidencias lleguen a la revisión final.
 
-> **Hito actual: v0.6.** Aegis ya puede utilizarse como revisor nativo del repositorio mediante GitHub Actions y como CLI local. Actualmente se centra en Go, utiliza DeepSeek como primer proveedor de razonamiento y avanza hacia la evaluación cuantitativa y el endurecimiento para producción.
+> **Hito actual: v0.7.** Aegis incorpora un Eval Harness de replay, verificación semántica, un gate explícito para Needs Review, contexto de intención del PR y un Pipeline de GitHub con cuatro analizadores. Sigue centrado en Go y utiliza DeepSeek como primer proveedor de razonamiento.
 
 ## ¿Qué ocurre al abrir un Pull Request?
 
@@ -25,10 +25,10 @@ Pull Request abierto o actualizado
  Git Diff y alcance de líneas modificadas
           │
           ├──────────────► analizadores deterministas de Go
-          │                 go test · go vet
+          │                 go test · go vet · staticcheck · gosec
           │
           └──────────────► motor de contexto del repositorio
-                            AST · tipos · llamadores · pruebas
+                            intención del PR · reglas · AST · tipos · llamadores · pruebas
                                       │
                                       ▼
                          agente de razonamiento DeepSeek
@@ -40,7 +40,7 @@ Pull Request abierto o actualizado
                  Annotations P0-P3 · Job Summary · informe HTML
 ```
 
-El modelo no decide directamente si el código puede fusionarse. Los hallazgos estáticos ya incluyen evidencias reproducibles. Los candidatos generados por el modelo deben superar comprobaciones de ubicación, Diff, instantánea del código fuente y diagnóstico focalizado antes de convertirse en hallazgos finales. Las hipótesis rechazadas o no concluyentes se conservan para auditoría, pero no se publican como hallazgos finales.
+El modelo no decide directamente si el código puede fusionarse. Los candidatos solo se promueven tras validar ubicación, Diff, instantánea del código y evidencias focalizadas o semánticas. Las hipótesis inválidas se rechazan; las que no pueden confirmarse ni descartarse aparecen como `Needs Review`, y las P0 bloquean por defecto en lugar de mostrarse como una revisión limpia.
 
 ## Arquitectura
 
@@ -51,10 +51,11 @@ El sistema se divide en etapas con entradas y salidas explícitas:
 | Orquestación de GitHub | Responder a eventos del PR, obtener la Base de confianza y el Head exacto, cancelar ejecuciones obsoletas | Entorno de revisión reproducible | `.github/workflows/aegis-review.yml` |
 | Motor de Diff | Resolver revisiones de forma segura y analizar Diffs de tres puntos, cambios de nombre, binarios, Hunks y líneas modificadas | Change Set normalizado | `internal/gitdiff/` |
 | Análisis estático | Ejecutar analizadores en paralelo con Timeout, normalizar diagnósticos y eliminar duplicados | Hallazgos respaldados por evidencias | `internal/analyzer/` |
-| Motor de contexto | Indexar declaraciones y relaciones de tipos de Go, y priorizar símbolos modificados y relacionados dentro de un presupuesto | Repository Context Bundle | `internal/context/` |
+| Motor de contexto | Combinar título, cuerpo, etiquetas e Issues del PR y reglas del repositorio con declaraciones y relaciones de tipos de Go | Repository Context Bundle | `internal/context/` |
 | Reasoning Agent | Permitir que DeepSeek inspeccione evidencias acotadas mediante herramientas de solo lectura y proponga candidatos estructurados | Candidatos sin verificar | `internal/agent/` |
-| Verifier | Validar la identidad y ubicación de los candidatos, repetir comprobaciones focalizadas y correlacionar evidencias independientes | Veredictos Verified/Rejected/Inconclusive | `internal/verifier/` |
+| Verifier V2 | Validar identidad y ubicación, repetir comprobaciones focalizadas y ejecutar reglas semánticas sensibles al código | Veredictos Verified/Needs Review/Rejected | `internal/verifier/` |
 | Publisher | Convertir severidades a P0-P3, aplicar el umbral de fusión y generar las salidas de GitHub y los informes completos | Summary, Annotations, HTML/JSON | `internal/githubreport/`, `internal/report/` |
+| Eval Harness | Reproducir informes Bug/Clean versionados y medir Findings y comportamiento del Gate | Precision, Recall, F1, P0/P1 Recall, Gate Accuracy, False Block Rate | `internal/eval/`, `eval/cases/` |
 | Límite de credenciales | Eliminar variables con forma de credencial de los subprocesos controlados por el repositorio | Entorno de subprocesos saneado | `internal/secureenv/` |
 
 ### Ciclo de vida de un Finding
@@ -68,11 +69,11 @@ candidato del modelo
 validación de Schema + límite del repositorio + línea modificada
       │
       ▼
-correlación con evidencias focalizadas de Test/Vet
+correlación con analizadores focalizados y evidencias semánticas
       │
       ├── Verified ───────────────────────────────────► Finding final
       ├── Rejected ───────────────────────────────────► solo registro de auditoría
-      └── Inconclusive ───────────────────────────────► solo registro de auditoría
+      └── Needs Review ───────────────────────────────► revisión humana visible; P0 bloquea por defecto
 ```
 
 El informe final utiliza un modelo de dominio `ReviewReport` estable que comparten la CLI, el Publisher de GitHub, el Renderer HTML y la interfaz de automatización JSON. De este modo, la lógica de revisión se mantiene independiente de la presentación.
@@ -98,7 +99,7 @@ Comprueba que GitHub Actions esté habilitado en **Settings → Actions → Gene
 El modo determinista no requiere ningún Secret:
 
 ```text
-go test + go vet + repository context + GitHub report
+go test + go vet + staticcheck + gosec + semantic verifier + GitHub report
 ```
 
 Para activar el flujo completo de razonamiento y verificación, crea un Repository Secret en **Settings → Secrets and variables → Actions**:
@@ -125,7 +126,7 @@ git push -u origin feature/my-change
 
 Abre un Pull Request de `feature/my-change` hacia `master`. El evento `opened` inicia Aegis; cada Push posterior emite un evento `synchronize`, inicia una revisión nueva y cancela la ejecución obsoleta.
 
-Los Pull Requests que solo modifican documentación también activan el Workflow y reciben un Summary y un Artifact con el informe. Cuando la comparación no contiene cambios de código fuente compatibles, Aegis omite el razonamiento de DeepSeek y el Verifier. Así evita llamadas innecesarias al modelo sin debilitar las comprobaciones deterministas.
+Los Pull Requests que solo modifican documentación también activan el Workflow y reciben un Summary y un Artifact. Aegis puede omitir razonamiento innecesario cuando no hay evidencias de código compatibles, mientras el análisis determinista, la publicación y el Merge Gate siguen siendo auditables.
 
 ### 4. Consultar el resultado
 
@@ -192,9 +193,13 @@ Comandos útiles:
 # Ejecutar todos los Adapter cuando staticcheck y gosec estén instalados
 ./aegis review --repo . --base master --head HEAD --analyzers all --output review.html
 
+# Reproducir el Corpus de regresión y generar un Dashboard autocontenido
+./aegis eval --corpus ./eval/cases --format html --output eval-report.html
+
 # Consultar todas las opciones disponibles
 ./aegis review --help
 ./aegis github --help
+./aegis eval --help
 ```
 
 ## Modelo de seguridad
@@ -218,6 +223,7 @@ internal/context/      AST/type index, relationships, ranking, budgets
 internal/config/       strict JSON config and narrow dotenv loading
 internal/agent/        provider protocol, prompt, tools, reasoning loop
 internal/verifier/     candidate validation and evidence adjudication
+internal/eval/         replay corpus, expectation matching, quality dashboard
 internal/githubreport/ P0-P3 mapping, Summary, annotations, merge gate
 internal/secureenv/    child-process credential isolation
 internal/review/       shared domain model
@@ -242,14 +248,17 @@ Completado:
 - Pipeline determinista de analizadores de Go.
 - Motor de contexto del repositorio.
 - Bucle de razonamiento DeepSeek acotado.
-- Verificación independiente de Candidates.
+- Verifier V2 con evidencias semánticas y Needs Review explícito.
+- Eval Harness de replay y Corpus inicial Bug/Clean.
+- Contexto de intención del PR y reglas del repositorio.
+- Workflow completo con go test, go vet, staticcheck y gosec.
 - Informe HTML de evidencias autocontenido.
 - Trigger de GitHub Actions, Annotations, Artifact y Merge Gate.
 
 Siguiente:
 
-- Corpus de evaluación seleccionado con PR que contienen Bugs y PR limpios.
-- Medición de Precision, Recall, False Positives, Latency y Cost.
+- Ampliar el Corpus inicial a un Benchmark con etiquetado independiente y valor estadístico.
+- Añadir comparación de modelos Live, repeticiones e intervalos de confianza.
 - Empaquetado como GitHub Action reutilizable y distribución de Releases.
 - Proveedores de modelos adicionales y Observability para producción.
 

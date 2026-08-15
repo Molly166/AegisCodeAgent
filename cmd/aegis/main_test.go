@@ -150,13 +150,25 @@ func TestLoadJSONReportRejectsUnknownSchemaAndTrailingData(t *testing.T) {
 	path := filepath.Join(directory, "review.json")
 	for _, content := range []string{
 		`{"schema_version":"v0"}`,
-		`{"schema_version":"v5"} {}`,
-		`{"schema_version":"v5","unknown":true}`,
+		`{"schema_version":"v6"} {}`,
+		`{"schema_version":"v6","unknown":true}`,
 	} {
 		writeCLITestFile(t, path, content)
 		if _, err := loadJSONReport(path); err == nil {
 			t.Fatalf("loadJSONReport(%q) error = nil", content)
 		}
+	}
+}
+
+func TestLoadJSONReportSafelyMigratesV5(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "review.json")
+	writeCLITestFile(t, path, `{"schema_version":"v5","verification":{"summary":{"candidates":1,"inconclusive":1},"candidates":[{"severity":"critical","verdict":"inconclusive"}]}}`)
+	report, err := loadJSONReport(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.SchemaVersion != review.SchemaVersion || report.Verification.Summary.NeedsReview != 1 || report.Verification.Candidates[0].Verdict != review.CandidateNeedsReview {
+		t.Fatalf("v5 report was not migrated safely: %+v", report.Verification)
 	}
 }
 
@@ -252,6 +264,78 @@ func TestReviewAndGitHubPublisherEndToEnd(t *testing.T) {
 		if err != nil || !strings.Contains(string(content), expected) {
 			t.Fatalf("%s content=%q err=%v", path, content, err)
 		}
+	}
+}
+
+func TestSemanticCredentialLeakIsDetectedAndBlockedWithoutAgent(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go is not installed")
+	}
+	repository := t.TempDir()
+	runCLITestGit(t, repository, "init", "-b", "master")
+	runCLITestGit(t, repository, "config", "user.name", "Aegis Test")
+	runCLITestGit(t, repository, "config", "user.email", "aegis@example.com")
+	writeCLITestFile(t, filepath.Join(repository, "go.mod"), "module example.com/semanticfixture\n\ngo 1.23\n")
+	baseSource := `package sample
+
+import "os/exec"
+
+func ForUntrustedChild(environment []string) []string { return environment }
+func Run() *exec.Cmd {
+	return exec.Command("helper")
+}
+`
+	writeCLITestFile(t, filepath.Join(repository, "main.go"), baseSource)
+	runCLITestGit(t, repository, "add", ".")
+	runCLITestGit(t, repository, "commit", "-m", "base")
+	base := strings.TrimSpace(runCLITestGit(t, repository, "rev-parse", "HEAD"))
+
+	buggySource := `package sample
+
+import (
+	"os"
+	"os/exec"
+)
+
+func ForUntrustedChild(environment []string) []string { return environment }
+func Run() *exec.Cmd {
+	process := exec.Command("helper")
+	process.Env = append(ForUntrustedChild(os.Environ()), "AEGIS_REVIEW_TOKEN="+os.Getenv("DEEPSEEK_API_KEY"))
+	return process
+}
+`
+	writeCLITestFile(t, filepath.Join(repository, "main.go"), buggySource)
+	runCLITestGit(t, repository, "add", "main.go")
+	runCLITestGit(t, repository, "commit", "-m", "introduce credential leak")
+
+	reportPath := filepath.Join(repository, "review.json")
+	var reviewStdout, reviewStderr bytes.Buffer
+	code := run(context.Background(), []string{
+		"review", "--repo", repository, "--base", base, "--head", "HEAD",
+		"--agent-provider", "none", "--format", "json", "--output", reportPath,
+	}, &reviewStdout, &reviewStderr)
+	if code != 0 {
+		t.Fatalf("review code=%d stdout=%q stderr=%q", code, reviewStdout.String(), reviewStderr.String())
+	}
+	reviewReport, err := loadJSONReport(reportPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reviewReport.Findings) != 1 || reviewReport.Findings[0].RuleID != "AEGIS-SEC-001" || reviewReport.Findings[0].Severity != review.SeverityCritical {
+		t.Fatalf("semantic P0 was not emitted: %+v", reviewReport.Findings)
+	}
+
+	var publishStdout, publishStderr bytes.Buffer
+	summaryPath := filepath.Join(repository, "summary.md")
+	code = run(context.Background(), []string{
+		"github", "--report", reportPath, "--html-output", filepath.Join(repository, "review.html"),
+		"--summary", summaryPath, "--fail-on", "p1", "--fail-on-needs-review", "p0",
+	}, &publishStdout, &publishStderr)
+	if code != 1 || !strings.Contains(publishStderr.String(), "blocked by P0") {
+		t.Fatalf("publisher did not block semantic P0: code=%d stdout=%q stderr=%q", code, publishStdout.String(), publishStderr.String())
 	}
 }
 

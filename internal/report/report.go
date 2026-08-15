@@ -120,6 +120,28 @@ func RenderMarkdown(reviewReport review.ReviewReport) []byte {
 		fmt.Fprintf(&output, "- Relations: %d\n", reviewReport.Context.Stats.RelationsIndexed)
 		fmt.Fprintf(&output, "- Estimated tokens: %d\n", reviewReport.Context.Stats.EstimatedTokens)
 		fmt.Fprintf(&output, "- Truncated: %t\n\n", reviewReport.Context.Truncated)
+		if reviewReport.Context.Intent.Source != "" {
+			output.WriteString("### Change intent\n\n")
+			fmt.Fprintf(&output, "- Source: %s\n", code(reviewReport.Context.Intent.Source))
+			if reviewReport.Context.Intent.Title != "" {
+				fmt.Fprintf(&output, "- Title: %s\n", escapeTable(reviewReport.Context.Intent.Title))
+			}
+			if len(reviewReport.Context.Intent.Labels) > 0 {
+				fmt.Fprintf(&output, "- Labels: %s\n", code(strings.Join(reviewReport.Context.Intent.Labels, ", ")))
+			}
+			if len(reviewReport.Context.Intent.LinkedIssues) > 0 {
+				fmt.Fprintf(&output, "- Linked issues: %s\n", code(strings.Join(reviewReport.Context.Intent.LinkedIssues, ", ")))
+			}
+			if reviewReport.Context.Intent.Description != "" {
+				output.WriteString("\n")
+				writeBlockquote(&output, reviewReport.Context.Intent.Description)
+			}
+			for _, guidance := range reviewReport.Context.Intent.RepositoryGuidance {
+				fmt.Fprintf(&output, "\n**Repository guidance — %s**\n\n", code(guidance.Path))
+				writeBlockquote(&output, guidance.Content)
+			}
+			output.WriteByte('\n')
+		}
 		if len(reviewReport.Context.ChangedSymbols) > 0 {
 			output.WriteString("### Changed symbols\n\n")
 			for _, symbol := range reviewReport.Context.ChangedSymbols {
@@ -201,7 +223,8 @@ func RenderMarkdown(reviewReport review.ReviewReport) []byte {
 		fmt.Fprintf(&output, "- Status: %s\n", code(string(reviewReport.Verification.Status)))
 		fmt.Fprintf(&output, "- Duration: %d ms\n", reviewReport.Verification.DurationMillis)
 		fmt.Fprintf(&output, "- Candidates: %d\n", reviewReport.Verification.Summary.Candidates)
-		fmt.Fprintf(&output, "- Verified / rejected / inconclusive: %d / %d / %d\n", reviewReport.Verification.Summary.Verified, reviewReport.Verification.Summary.Rejected, reviewReport.Verification.Summary.Inconclusive)
+		fmt.Fprintf(&output, "- Verified / needs review / rejected: %d / %d / %d\n", reviewReport.Verification.Summary.Verified, reviewReport.Verification.Summary.NeedsReview+reviewReport.Verification.Summary.Inconclusive, reviewReport.Verification.Summary.Rejected)
+		fmt.Fprintf(&output, "- Semantic evidence findings: %d\n", reviewReport.Verification.Summary.SemanticFindings)
 		fmt.Fprintf(&output, "- Promoted findings: %d\n\n", reviewReport.Verification.Summary.Promoted)
 		if len(reviewReport.Verification.Tools) > 0 {
 			output.WriteString("### Focused verification tools\n\n")

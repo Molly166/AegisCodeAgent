@@ -26,8 +26,11 @@ var htmlReportTemplate = template.Must(template.New("review-report").Funcs(templ
 	"agentLabel":        agentStatusLabel,
 	"verificationLabel": verificationStatusLabel,
 	"verdictLabel":      candidateVerdictLabel,
-	"symbolLocation":    formatSymbolLocation,
-	"join":              strings.Join,
+	"needsReviewCount": func(run review.VerificationRun) int {
+		return run.Summary.NeedsReview + run.Summary.Inconclusive
+	},
+	"symbolLocation": formatSymbolLocation,
+	"join":           strings.Join,
 	"hasSymbolDetail": func(symbol review.ContextSymbol) bool {
 		return symbol.Documentation != "" || symbol.Snippet != ""
 	},
@@ -58,13 +61,19 @@ func riskClass(report review.ReviewReport) string {
 	switch {
 	case summary.Critical > 0:
 		return "critical"
+	case hasNeedsReviewAt(report, review.SeverityCritical):
+		return "critical"
 	case report.Context.Status == review.ContextFailed,
 		report.Agent.Status == review.AgentFailed,
 		report.Verification.Status == review.VerificationFailed:
 		return "critical"
 	case summary.High > 0:
 		return "high"
+	case hasNeedsReviewAt(report, review.SeverityHigh):
+		return "high"
 	case summary.Medium > 0:
+		return "medium"
+	case hasNeedsReviewAt(report, review.SeverityMedium):
 		return "medium"
 	case report.Analysis.Status == review.AnalysisPartial,
 		report.Context.Status == review.ContextPartial,
@@ -95,6 +104,8 @@ func riskLabel(report review.ReviewReport) string {
 		return "Reasoning failed"
 	case report.Verification.Status == review.VerificationFailed:
 		return "Verification failed"
+	case hasUnresolvedCandidates(report):
+		return "Needs review"
 	case summary.High > 0:
 		return "Attention"
 	case summary.Medium > 0:
@@ -145,6 +156,9 @@ func emptyTitle(report review.ReviewReport) string {
 	if report.Verification.Status == review.VerificationPartial {
 		return "No findings from completed verification checks."
 	}
+	if hasUnresolvedCandidates(report) {
+		return "No verified finding, but human review is required."
+	}
 	return "No review findings were reported."
 }
 
@@ -164,7 +178,28 @@ func emptyMessage(report review.ReviewReport) string {
 	if report.Verification.Status == review.VerificationPartial {
 		return "At least one focused verification check was unavailable or failed; unsupported candidates remain withheld."
 	}
+	if hasUnresolvedCandidates(report) {
+		return "One or more hypotheses could not be verified or rejected. This result must not be interpreted as a clean review; inspect the Needs Review cards above."
+	}
 	return "The completed analysis did not produce findings for this comparison."
+}
+
+func hasUnresolvedCandidates(report review.ReviewReport) bool {
+	for _, candidate := range report.Verification.Candidates {
+		if candidate.Verdict == review.CandidateNeedsReview || candidate.Verdict == review.CandidateInconclusive {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNeedsReviewAt(report review.ReviewReport, severity review.Severity) bool {
+	for _, candidate := range report.Verification.Candidates {
+		if (candidate.Verdict == review.CandidateNeedsReview || candidate.Verdict == review.CandidateInconclusive) && candidate.Severity == severity {
+			return true
+		}
+	}
+	return false
 }
 
 func durationMillis(value int64) string {
@@ -475,6 +510,15 @@ const htmlTemplateSource = `<!doctype html>
     .tool-stat { color: #47536a; font: 550 11px/1.4 var(--mono); }
     .tool-detail { color: var(--muted); overflow-wrap: anywhere; font-size: 12px; }
 
+    .intent-card { margin-bottom: 22px; padding: 20px 22px; color: #344056; background: #f5f7ff; border: 1px solid #d8ddf5; border-left: 3px solid var(--indigo); }
+    .intent-card h3 { margin: 0; font: 650 18px/1.35 var(--display); }
+    .intent-source { display: inline-block; margin-bottom: 10px; color: var(--indigo); font: 700 9px/1 var(--mono); letter-spacing: .09em; text-transform: uppercase; }
+    .intent-description { margin: 12px 0 0; white-space: pre-wrap; }
+    .intent-meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 14px; }
+    .intent-meta span { padding: 5px 8px; color: #4d5c82; background: #e8ecfb; font: 600 10px/1 var(--mono); }
+    .intent-guidance { margin-top: 15px; }
+    .intent-guidance pre { max-height: 240px; overflow: auto; white-space: pre-wrap; }
+
     .context-overview {
       display: grid;
       grid-template-columns: repeat(6, minmax(0, 1fr));
@@ -545,7 +589,7 @@ const htmlTemplateSource = `<!doctype html>
 
     .verification-overview {
       display: grid;
-      grid-template-columns: repeat(5, minmax(0, 1fr));
+      grid-template-columns: repeat(6, minmax(0, 1fr));
       border-top: 1px solid var(--ink);
       border-bottom: 1px solid var(--line);
     }
@@ -558,6 +602,7 @@ const htmlTemplateSource = `<!doctype html>
     .verification-card.verified { --verdict: var(--clear); background: #f5fbf8; }
     .verification-card.rejected { --verdict: var(--critical); background: #fff8f9; }
     .verification-card.inconclusive { --verdict: var(--medium); background: #fffcf5; }
+    .verification-card.needs_review { --verdict: var(--medium); background: #fffcf5; }
     .verification-top { display: flex; align-items: start; justify-content: space-between; gap: 18px; }
     .verification-title { margin: 0; font: 650 17px/1.35 var(--display); }
     .verdict-badge { flex: none; padding: 5px 8px; color: var(--verdict); border: 1px solid currentColor; font: 750 9px/1 var(--mono); letter-spacing: .09em; }
@@ -720,8 +765,25 @@ const htmlTemplateSource = `<!doctype html>
     <section class="section" aria-labelledby="context-heading">
       <div class="section-heading">
         <h2 id="context-heading">Repository context</h2>
-        <p class="section-note">AST-derived context selected for agent reasoning</p>
+        <p class="section-note">Change intent and AST-derived evidence selected for agent reasoning</p>
       </div>
+      {{if .Context.Intent.Source}}
+      <article class="intent-card">
+        <span class="intent-source">Change intent · {{.Context.Intent.Source}}</span>
+        {{if .Context.Intent.Title}}<h3>{{.Context.Intent.Title}}</h3>{{end}}
+        {{if .Context.Intent.Description}}<p class="intent-description">{{.Context.Intent.Description}}</p>{{end}}
+        <div class="intent-meta">
+          {{range .Context.Intent.Labels}}<span>label: {{.}}</span>{{end}}
+          {{range .Context.Intent.LinkedIssues}}<span>issue: {{.}}</span>{{end}}
+          {{if .Context.Intent.Truncated}}<span>payload truncated</span>{{end}}
+        </div>
+        {{if .Context.Intent.RepositoryGuidance}}
+        <div class="intent-guidance">
+          {{range .Context.Intent.RepositoryGuidance}}<details><summary>Repository guidance · {{.Path}}</summary><pre>{{.Content}}</pre></details>{{end}}
+        </div>
+        {{end}}
+      </article>
+      {{end}}
       <div class="context-overview">
         <div class="context-stat"><span>Packages</span><strong>{{.Context.Stats.PackagesLoaded}}</strong></div>
         <div class="context-stat"><span>Type checked</span><strong>{{.Context.Stats.PackagesTypeChecked}}</strong></div>
@@ -844,14 +906,15 @@ const htmlTemplateSource = `<!doctype html>
       <div class="verification-overview">
         <div class="verification-stat"><span>Status</span><strong>{{verificationLabel .Verification.Status}}</strong></div>
         <div class="verification-stat"><span>Verified</span><strong>{{.Verification.Summary.Verified}}</strong></div>
+        <div class="verification-stat"><span>Needs review</span><strong>{{needsReviewCount .Verification}}</strong></div>
         <div class="verification-stat"><span>Rejected</span><strong>{{.Verification.Summary.Rejected}}</strong></div>
-        <div class="verification-stat"><span>Inconclusive</span><strong>{{.Verification.Summary.Inconclusive}}</strong></div>
+        <div class="verification-stat"><span>Semantic evidence</span><strong>{{.Verification.Summary.SemanticFindings}}</strong></div>
         <div class="verification-stat"><span>Promoted</span><strong>{{.Verification.Summary.Promoted}}</strong></div>
       </div>
       <div class="agent-lead">
         <span>{{duration .Verification.DurationMillis}}</span>
         <span>{{.Verification.Summary.Candidates}} candidate(s) adjudicated</span>
-        <span>Only verified candidates may enter Review findings</span>
+        <span>Only independently evidenced findings enter the final verdict</span>
       </div>
       {{if .Verification.Tools}}
       <div class="tool-table" aria-label="Focused verification tools">

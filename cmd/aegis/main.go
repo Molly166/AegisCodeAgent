@@ -16,6 +16,7 @@ import (
 	"github.com/Molly166/AegisCodeAgent/internal/analyzer"
 	appconfig "github.com/Molly166/AegisCodeAgent/internal/config"
 	repocontext "github.com/Molly166/AegisCodeAgent/internal/context"
+	evalharness "github.com/Molly166/AegisCodeAgent/internal/eval"
 	"github.com/Molly166/AegisCodeAgent/internal/gitdiff"
 	"github.com/Molly166/AegisCodeAgent/internal/githubreport"
 	"github.com/Molly166/AegisCodeAgent/internal/report"
@@ -24,7 +25,7 @@ import (
 )
 
 const (
-	version            = "0.6.0"
+	version            = "0.7.0"
 	maxReviewJSONBytes = 32 * 1024 * 1024
 )
 
@@ -43,6 +44,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		return runReview(ctx, arguments[1:], stdout, stderr)
 	case "github":
 		return runGitHub(arguments[1:], stdout, stderr)
+	case "eval":
+		return runEval(arguments[1:], stdout, stderr)
 	case "version", "--version", "-version":
 		fmt.Fprintf(stdout, "aegis %s\n", version)
 		return 0
@@ -56,6 +59,65 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 	}
 }
 
+func runEval(arguments []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("eval", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	corpus := flags.String("corpus", "eval/cases", "path to a replay eval corpus")
+	format := flags.String("format", evalharness.FormatHTML, "eval report format: html or json")
+	outputPath := flags.String("output", "eval-report.html", "output file path, or - for stdout")
+	failOnValue := flags.String("fail-on", "p1", "finding merge-gate threshold")
+	failOnNeedsReviewValue := flags.String("fail-on-needs-review", "p0", "unresolved-hypothesis merge-gate threshold")
+	failOnIncomplete := flags.Bool("fail-on-incomplete", true, "treat incomplete review stages as blocked")
+	strict := flags.Bool("strict", true, "exit non-zero when any eval case fails")
+	flags.Usage = func() { writeEvalUsage(stderr, flags) }
+	if err := flags.Parse(arguments); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 2
+	}
+	if flags.NArg() != 0 {
+		fmt.Fprintf(stderr, "eval does not accept positional arguments: %v\n", flags.Args())
+		return 2
+	}
+	failOn, err := githubreport.ParsePriority(*failOnValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 2
+	}
+	failOnNeedsReview, err := githubreport.ParsePriority(*failOnNeedsReviewValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 2
+	}
+	evalReport, err := evalharness.Run(evalharness.Config{
+		Corpus: *corpus,
+		Gate: githubreport.Options{
+			FailOn: failOn, FailOnNeedsReview: failOnNeedsReview, FailOnIncomplete: *failOnIncomplete,
+		},
+	})
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: run eval: %v\n", err)
+		return 1
+	}
+	encoded, err := evalharness.Render(*format, evalReport)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 2
+	}
+	if err := writeOutput(*outputPath, encoded, stdout); err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 1
+	}
+	fmt.Fprintf(stderr, "aegis eval: %d/%d cases passed, precision %.1f%%, recall %.1f%%, gate accuracy %.1f%%\n",
+		evalReport.Metrics.PassedCases, evalReport.Metrics.Cases,
+		evalReport.Metrics.Precision*100, evalReport.Metrics.Recall*100, evalReport.Metrics.GateAccuracy*100)
+	if *strict && evalReport.Metrics.PassedCases != evalReport.Metrics.Cases {
+		return 1
+	}
+	return 0
+}
+
 func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 	flags := flag.NewFlagSet("github", flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -64,6 +126,7 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 	summaryPath := flags.String("summary", os.Getenv("GITHUB_STEP_SUMMARY"), "path to the GitHub step summary file")
 	annotations := flags.Bool("annotations", true, "emit GitHub workflow annotations to stdout")
 	failOnValue := flags.String("fail-on", "p1", "merge gate threshold: p0, p1, p2, p3, or none")
+	failOnNeedsReviewValue := flags.String("fail-on-needs-review", "p0", "merge gate threshold for unresolved hypotheses: p0, p1, p2, p3, or none")
 	failOnIncomplete := flags.Bool("fail-on-incomplete", true, "fail the merge gate when a requested review stage is partial or failed")
 	maxAnnotations := flags.Int("max-annotations", githubreport.DefaultMaxAnnotations, "maximum line annotations emitted per run")
 	artifactName := flags.String("artifact-name", "aegis-review-report", "artifact name referenced by the GitHub summary")
@@ -79,6 +142,11 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	failOn, err := githubreport.ParsePriority(*failOnValue)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 2
+	}
+	failOnNeedsReview, err := githubreport.ParsePriority(*failOnNeedsReviewValue)
 	if err != nil {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 2
@@ -107,7 +175,8 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	summary := githubreport.RenderSummary(reviewReport, githubreport.Options{
-		FailOn: failOn, FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName,
+		FailOn: failOn, FailOnNeedsReview: failOnNeedsReview,
+		FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName,
 	})
 	if err := appendOutput(*summaryPath, summary); err != nil {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
@@ -119,12 +188,16 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	gate := githubreport.Evaluate(reviewReport, failOn, *failOnIncomplete)
+	gate := githubreport.EvaluateWithOptions(reviewReport, githubreport.Options{
+		FailOn: failOn, FailOnNeedsReview: failOnNeedsReview, FailOnIncomplete: *failOnIncomplete,
+	})
 	if gate.Blocked {
 		if gate.Incomplete {
 			fmt.Fprintln(stderr, "aegis: GitHub merge gate blocked because the review is incomplete")
-		} else {
+		} else if gate.BlockedByFinding {
 			fmt.Fprintf(stderr, "aegis: GitHub merge gate blocked by %s finding(s)\n", strings.ToUpper(string(gate.Highest)))
+		} else if gate.BlockedByNeedsReview {
+			fmt.Fprintf(stderr, "aegis: GitHub merge gate blocked by unresolved %s hypothesis\n", strings.ToUpper(string(gate.NeedsReviewHighest)))
 		}
 		return 1
 	}
@@ -167,6 +240,8 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	contextScope := flags.String("context-scope", analyzer.ScopeAll, "repository context scope: changed or all")
 	contextMaxSymbols := flags.Int("context-max-symbols", 40, "maximum changed and related symbols in the context bundle")
 	contextMaxBytes := flags.Int("context-max-bytes", 48*1024, "maximum approximate context payload size in bytes")
+	contextIntentMaxBytes := flags.Int("context-intent-max-bytes", 24*1024, "maximum PR intent and repository-guidance payload size")
+	githubEventPath := flags.String("github-event", os.Getenv("GITHUB_EVENT_PATH"), "path to a GitHub event JSON file used to extract pull-request intent")
 	contextTimeout := flags.Duration("context-timeout", time.Minute, "maximum time for repository context indexing")
 	agentProviderName := flags.String("agent-provider", agentDefaults.Provider, "reasoning agent provider: none or deepseek")
 	agentModel := flags.String("agent-model", agentDefaults.Model, "reasoning model name")
@@ -180,7 +255,7 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	agentMaxCandidates := flags.Int("agent-max-candidates", agentDefaults.MaxCandidates, "maximum unverified candidates accepted from the model")
 	agentMaxInputBytes := flags.Int("agent-max-input-bytes", agentDefaults.MaxInputBytes, "maximum serialized diff/context bytes sent to the model")
 	agentMaxOutputTokens := flags.Int("agent-max-output-tokens", agentDefaults.MaxOutputTokens, "maximum output tokens per model turn")
-	verifyAgentCandidates := flags.Bool("verify-agent-candidates", verificationDefaults.Enabled, "verify Agent candidates with local evidence and focused analyzers")
+	verifyAgentCandidates := flags.Bool("verify-agent-candidates", verificationDefaults.Enabled, "run semantic evidence rules and verify Agent candidates with focused analyzers")
 	verifierTimeout := flags.Duration("verifier-timeout", verificationDefaults.Timeout, "maximum time for the complete verification stage")
 	verifierAnalyzerTimeout := flags.Duration("verifier-analyzer-timeout", verificationDefaults.AnalyzerTimeout, "maximum time for each focused verification analyzer")
 	flags.Usage = func() { writeReviewUsage(stderr, flags) }
@@ -212,8 +287,8 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		fmt.Fprintf(stderr, "aegis: invalid context scope: %v\n", err)
 		return 2
 	}
-	if *contextMaxSymbols <= 0 || *contextMaxBytes <= 0 {
-		fmt.Fprintln(stderr, "aegis: context-max-symbols and context-max-bytes must be positive")
+	if *contextMaxSymbols <= 0 || *contextMaxBytes <= 0 || *contextIntentMaxBytes <= 0 {
+		fmt.Fprintln(stderr, "aegis: context-max-symbols, context-max-bytes, and context-intent-max-bytes must be positive")
 		return 2
 	}
 	if err := agent.ValidateProvider(*agentProviderName); err != nil {
@@ -286,7 +361,7 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		HeadCommit: result.HeadCommit,
 	}
 	reviewReport := review.NewScopeReport(comparison, result.Files)
-	if len(selectedAnalyzers) > 0 || *contextEngine || reasoningProvider != nil {
+	if len(selectedAnalyzers) > 0 || *contextEngine || reasoningProvider != nil || *verifyAgentCandidates {
 		if !*allowDirtyAnalysis && (result.WorktreeCommit != result.HeadCommit || !result.WorktreeClean) {
 			fmt.Fprintln(stderr, "aegis: analysis/context worktree does not exactly match the requested head revision")
 			fmt.Fprintln(stderr, "aegis: check out the requested head and clean/stash local changes, or explicitly use --allow-dirty-analysis")
@@ -326,9 +401,11 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		}
 		indexContext, cancel := context.WithTimeout(ctx, *contextTimeout)
 		contextBundle, contextErr := repocontext.NewBuilder(analyzer.OSRunner{MaxOutputBytes: 16 * 1024 * 1024}).Build(indexContext, repocontext.Input{
-			Repository: result.Repository,
-			Packages:   contextPackages,
-			Files:      result.Files,
+			Repository:      result.Repository,
+			Packages:        contextPackages,
+			Files:           result.Files,
+			GitHubEventPath: *githubEventPath,
+			IntentMaxBytes:  *contextIntentMaxBytes,
 			Budget: repocontext.Budget{
 				MaxSymbols:    *contextMaxSymbols,
 				MaxTotalBytes: *contextMaxBytes,
@@ -361,10 +438,10 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		}
 	}
 	var verificationErr error
-	if *verifyAgentCandidates && (reviewReport.Agent.Status == review.AgentComplete || reviewReport.Agent.Status == review.AgentPartial) {
+	if *verifyAgentCandidates {
 		verificationContext, cancel := context.WithTimeout(ctx, *verifierTimeout)
 		verificationOutput, verifyErr := verifier.New(analyzer.NewDefaultPipeline(analyzer.OSRunner{})).Run(verificationContext, verifier.Config{
-			Repository: result.Repository, AnalyzerTimeout: *verifierAnalyzerTimeout,
+			Repository: result.Repository, AnalyzerTimeout: *verifierAnalyzerTimeout, AnalyzerNames: selectedAnalyzers,
 		}, verifier.Input{
 			Files: result.Files, Findings: reviewReport.Findings, Agent: reviewReport.Agent,
 		})
@@ -598,8 +675,8 @@ func loadJSONReport(path string) (review.ReviewReport, error) {
 		}
 		return review.ReviewReport{}, fmt.Errorf("decode JSON report %q: %w", path, err)
 	}
-	if result.SchemaVersion != review.SchemaVersion {
-		return review.ReviewReport{}, fmt.Errorf("JSON report schema %q is incompatible with %q", result.SchemaVersion, review.SchemaVersion)
+	if err := review.UpgradeReport(&result); err != nil {
+		return review.ReviewReport{}, fmt.Errorf("JSON report: %w", err)
 	}
 	return result, nil
 }
@@ -610,9 +687,20 @@ func writeRootUsage(output io.Writer) {
 	fmt.Fprintln(output, "Usage:")
 	fmt.Fprintln(output, "  aegis review [flags]")
 	fmt.Fprintln(output, "  aegis github [flags]")
+	fmt.Fprintln(output, "  aegis eval [flags]")
 	fmt.Fprintln(output, "  aegis version")
 	fmt.Fprintln(output)
-	fmt.Fprintln(output, "Run 'aegis review --help' or 'aegis github --help' for command flags.")
+	fmt.Fprintln(output, "Run 'aegis <command> --help' for command flags.")
+}
+
+func writeEvalUsage(output io.Writer, flags *flag.FlagSet) {
+	fmt.Fprintln(output, "Evaluate saved Aegis review reports against a versioned regression corpus.")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Usage:")
+	fmt.Fprintln(output, "  aegis eval [flags]")
+	fmt.Fprintln(output)
+	fmt.Fprintln(output, "Flags:")
+	flags.PrintDefaults()
 }
 
 func writeGitHubUsage(output io.Writer, flags *flag.FlagSet) {

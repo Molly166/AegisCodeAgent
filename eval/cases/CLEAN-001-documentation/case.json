@@ -1,0 +1,12 @@
+{
+  "schema_version": "v1",
+  "id": "CLEAN-001",
+  "title": "Documentation-only change",
+  "description": "A clean PR should not be blocked or generate false findings.",
+  "tags": ["clean", "documentation"],
+  "report": "report.json",
+  "expected_findings": [],
+  "expected_gate": "passed",
+  "expected_needs_review": 0,
+  "max_unexpected_findings": 0
+}

@@ -230,6 +230,27 @@ func TestPromptOmitsSensitiveChangedFileContent(t *testing.T) {
 	}
 }
 
+func TestPromptIncludesBoundedChangeIntentAsUntrustedEvidence(t *testing.T) {
+	input := fixtureRunInput()
+	input.Context.Intent = review.ChangeIntent{
+		Source: "github_pull_request", Title: "Harden child isolation", Description: "Fixes #42",
+		Labels: []string{"security"}, LinkedIssues: []string{"#42"},
+		RepositoryGuidance: []review.IntentDocument{{Path: "AGENTS.md", Content: "Never expose credentials to child processes."}},
+	}
+	messages, _, err := buildInitialMessages(input, 32*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"change_intent", "Harden child isolation", "AGENTS.md", "#42"} {
+		if !strings.Contains(messages[1].Content, expected) {
+			t.Errorf("prompt does not contain intent field %q: %s", expected, messages[1].Content)
+		}
+	}
+	if !strings.Contains(messages[0].Content, "Pull-request metadata") || !strings.Contains(messages[0].Content, "untrusted evidence") {
+		t.Fatalf("system prompt does not state the intent trust boundary: %s", messages[0].Content)
+	}
+}
+
 func TestCandidateOutputRequiresContractFields(t *testing.T) {
 	for _, content := range []string{
 		`{"summary":"missing candidates"}`,

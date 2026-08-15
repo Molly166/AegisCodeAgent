@@ -57,6 +57,40 @@ func TestSkippedOptionalStagesDoNotBlock(t *testing.T) {
 	}
 }
 
+func TestNeedsReviewIsVisibleAndCanBlock(t *testing.T) {
+	report := review.NewReport(review.Comparison{Base: "master", Head: "feature"}, []review.ChangedFile{{NewPath: "main.go"}}, nil)
+	report.Context = review.EmptyContextBundle(review.ContextComplete)
+	report.Agent = review.EmptyAgentRun(review.AgentComplete)
+	report.Verification = review.EmptyVerificationRun(review.VerificationComplete)
+	report.Verification.Summary = review.VerificationSummary{Candidates: 1, NeedsReview: 1}
+	report.Verification.Candidates = []review.CandidateVerification{{
+		CandidateID: "AGENT-1", Title: "Possible credential leak", Severity: review.SeverityCritical,
+		Location: review.Location{Path: "main.go", StartLine: 10}, Verdict: review.CandidateNeedsReview,
+		Reason: "semantic evidence is unresolved",
+	}}
+
+	gate := EvaluateWithOptions(report, Options{FailOn: PriorityP1, FailOnNeedsReview: PriorityP0, FailOnIncomplete: true})
+	if !gate.Blocked || !gate.BlockedByNeedsReview || gate.NeedsReviewHighest != PriorityP0 {
+		t.Fatalf("P0 needs-review hypothesis did not block: %+v", gate)
+	}
+	if relaxed := EvaluateWithOptions(report, Options{FailOn: PriorityP1, FailOnNeedsReview: PriorityNone}); relaxed.Blocked || !relaxed.NeedsReview {
+		t.Fatalf("disabled needs-review gate hid or blocked the hypothesis: %+v", relaxed)
+	}
+	summary := string(RenderSummary(report, Options{FailOn: PriorityP1, FailOnNeedsReview: PriorityP0}))
+	for _, expected := range []string{"blocked pending human review", "Needs human review", "Possible credential leak", "P0", "1 needs review"} {
+		if !strings.Contains(summary, expected) {
+			t.Errorf("needs-review summary does not contain %q:\n%s", expected, summary)
+		}
+	}
+	if strings.Contains(summary, "completed without findings") {
+		t.Fatalf("unresolved review was presented as clean:\n%s", summary)
+	}
+	annotations := string(RenderAnnotations(report, 10))
+	if !strings.Contains(annotations, "NEEDS REVIEW") || !strings.Contains(annotations, "file=main.go") {
+		t.Fatalf("needs-review annotation missing: %s", annotations)
+	}
+}
+
 func TestRenderSummary(t *testing.T) {
 	report := reportFixture()
 	output := string(RenderSummary(report, Options{
