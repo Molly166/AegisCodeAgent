@@ -165,7 +165,11 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 1
 	}
-	htmlReport, err := report.RenderHTML(reviewReport)
+	reportOptions := githubreport.Options{
+		FailOn: failOn, FailOnNeedsReview: failOnNeedsReview,
+		FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName,
+	}
+	htmlReport, err := report.RenderHTMLWithOptions(reviewReport, reportOptions)
 	if err != nil {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 1
@@ -174,10 +178,7 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 1
 	}
-	summary := githubreport.RenderSummary(reviewReport, githubreport.Options{
-		FailOn: failOn, FailOnNeedsReview: failOnNeedsReview,
-		FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName,
-	})
+	summary := githubreport.RenderSummary(reviewReport, reportOptions)
 	if err := appendOutput(*summaryPath, summary); err != nil {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 1
@@ -188,9 +189,7 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	gate := githubreport.EvaluateWithOptions(reviewReport, githubreport.Options{
-		FailOn: failOn, FailOnNeedsReview: failOnNeedsReview, FailOnIncomplete: *failOnIncomplete,
-	})
+	gate := githubreport.EvaluateWithOptions(reviewReport, reportOptions)
 	if gate.Blocked {
 		if gate.Incomplete {
 			fmt.Fprintln(stderr, "aegis: GitHub merge gate blocked because the review is incomplete")
