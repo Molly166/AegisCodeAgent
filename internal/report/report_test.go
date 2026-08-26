@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Molly166/AegisCodeAgent/internal/githubreport"
 	"github.com/Molly166/AegisCodeAgent/internal/review"
 )
 
@@ -240,6 +241,76 @@ func TestNeedsReviewCannotRenderAsNoFindings(t *testing.T) {
 	}
 	if !strings.Contains(string(html), "NEEDS REVIEW") || strings.Contains(string(html), ">No findings<") {
 		t.Fatalf("needs-review HTML was presented as clean")
+	}
+}
+
+func TestRenderHTMLUsesGateOptionsAndP0P3Labels(t *testing.T) {
+	reviewReport := review.NewReport(review.Comparison{Base: "master", Head: "feature"}, nil, []review.Finding{{
+		Title: "Directory permissions are too broad", Severity: review.SeverityMedium,
+		Location: review.Location{Path: "main.go", StartLine: 12}, Confidence: 0.99,
+	}})
+	reviewReport.Verification = review.EmptyVerificationRun(review.VerificationComplete)
+
+	blocked, err := RenderHTMLWithOptions(reviewReport, githubreport.Options{
+		FailOn: githubreport.PriorityP2, FailOnNeedsReview: githubreport.PriorityP0, FailOnIncomplete: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blockedHTML := string(blocked)
+	for _, expected := range []string{"Merge blocked", "risk-blocked", "A P2 finding met the configured P2 merge threshold", `<span class="severity">P2</span>`} {
+		if !strings.Contains(blockedHTML, expected) {
+			t.Errorf("blocked HTML does not contain %q", expected)
+		}
+	}
+	if strings.Contains(blockedHTML, `<span class="severity">Medium</span>`) {
+		t.Fatal("HTML mixes the legacy severity label with the P0-P3 scale")
+	}
+	findingsIndex := strings.Index(blockedHTML, `id="findings-heading"`)
+	filesIndex := strings.Index(blockedHTML, `id="files-heading"`)
+	if findingsIndex < 0 || filesIndex < 0 || findingsIndex >= filesIndex {
+		t.Fatalf("findings section must precede change-surface details: findings=%d files=%d", findingsIndex, filesIndex)
+	}
+
+	advisory, err := RenderHTMLWithOptions(reviewReport, githubreport.Options{
+		FailOn: githubreport.PriorityP1, FailOnNeedsReview: githubreport.PriorityP0, FailOnIncomplete: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Review complete", "Advisory findings", "Merge gate passed with advisory findings"} {
+		if !strings.Contains(string(advisory), expected) {
+			t.Errorf("advisory HTML does not contain %q", expected)
+		}
+	}
+}
+
+func TestRenderHTMLIncompleteDecisionRespectsPolicy(t *testing.T) {
+	reviewReport := review.NewReport(review.Comparison{}, nil, nil)
+	reviewReport.Analysis.Status = review.AnalysisPartial
+
+	blocked, err := RenderHTMLWithOptions(reviewReport, githubreport.Options{
+		FailOn: githubreport.PriorityP1, FailOnNeedsReview: githubreport.PriorityP0, FailOnIncomplete: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Review incomplete", "merge gate blocked", "Rerun required"} {
+		if !strings.Contains(string(blocked), expected) {
+			t.Errorf("fail-closed HTML does not contain %q", expected)
+		}
+	}
+
+	allowed, err := RenderHTMLWithOptions(reviewReport, githubreport.Options{
+		FailOn: githubreport.PriorityP1, FailOnNeedsReview: githubreport.PriorityP0, FailOnIncomplete: false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"Review incomplete", "Allowed by policy", "Merge gate passed with an incomplete review"} {
+		if !strings.Contains(string(allowed), expected) {
+			t.Errorf("fail-open HTML does not contain %q", expected)
+		}
 	}
 }
 

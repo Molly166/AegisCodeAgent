@@ -2,13 +2,37 @@ package report
 
 import (
 	"bytes"
+	_ "embed"
 	"fmt"
 	"html/template"
 	"strings"
 	"time"
 
+	"github.com/Molly166/AegisCodeAgent/internal/githubreport"
 	"github.com/Molly166/AegisCodeAgent/internal/review"
 )
+
+//go:embed report_v2.css
+var htmlReportV2CSS string
+
+type htmlReportView struct {
+	review.ReviewReport
+	Counts  githubreport.Counts
+	Gate    githubreport.GateResult
+	Options githubreport.Options
+	Verdict htmlVerdict
+}
+
+type htmlVerdict struct {
+	Class           string
+	Title           string
+	Label           string
+	Count           string
+	Caption         string
+	Summary         string
+	DecisionTitle   string
+	DecisionMessage string
+}
 
 var htmlReportTemplate = template.Must(template.New("review-report").Funcs(template.FuncMap{
 	"formatTime":        func(value time.Time) string { return value.UTC().Format("02 Jan 2006 · 15:04 UTC") },
@@ -26,6 +50,8 @@ var htmlReportTemplate = template.Must(template.New("review-report").Funcs(templ
 	"agentLabel":        agentStatusLabel,
 	"verificationLabel": verificationStatusLabel,
 	"verdictLabel":      candidateVerdictLabel,
+	"priorityLabel":     func(value githubreport.Priority) string { return strings.ToUpper(string(value)) },
+	"reportCSS":         func() template.CSS { return template.CSS(htmlReportV2CSS) },
 	"needsReviewCount": func(run review.VerificationRun) int {
 		return run.Summary.NeedsReview + run.Summary.Inconclusive
 	},
@@ -43,11 +69,109 @@ var htmlReportTemplate = template.Must(template.New("review-report").Funcs(templ
 }).Parse(htmlTemplateSource))
 
 func RenderHTML(reviewReport review.ReviewReport) ([]byte, error) {
+	return RenderHTMLWithOptions(reviewReport, githubreport.Options{
+		FailOn:            githubreport.PriorityP1,
+		FailOnNeedsReview: githubreport.PriorityP0,
+		FailOnIncomplete:  true,
+	})
+}
+
+func RenderHTMLWithOptions(reviewReport review.ReviewReport, options githubreport.Options) ([]byte, error) {
+	if options.FailOn == "" {
+		options.FailOn = githubreport.PriorityP1
+	}
+	if options.FailOnNeedsReview == "" {
+		options.FailOnNeedsReview = githubreport.PriorityP0
+	}
+	gate := githubreport.EvaluateWithOptions(reviewReport, options)
+	view := htmlReportView{
+		ReviewReport: reviewReport,
+		Counts:       githubreport.Count(reviewReport),
+		Gate:         gate,
+		Options:      options,
+		Verdict:      htmlVerdictFor(reviewReport, gate, options),
+	}
 	var output bytes.Buffer
-	if err := htmlReportTemplate.Execute(&output, reviewReport); err != nil {
+	if err := htmlReportTemplate.Execute(&output, view); err != nil {
 		return nil, fmt.Errorf("render HTML report: %w", err)
 	}
 	return output.Bytes(), nil
+}
+
+func htmlVerdictFor(report review.ReviewReport, gate githubreport.GateResult, options githubreport.Options) htmlVerdict {
+	findings := fmt.Sprintf("%d findings", len(report.Findings))
+	if len(report.Findings) == 1 {
+		findings = "1 finding"
+	}
+	if report.Analysis.Status == review.AnalysisScopeOnly {
+		return htmlVerdict{
+			Class: "pending", Title: "Review pending", Label: "Pending", Count: "Scope mapped", Caption: "Analysis pending",
+			Summary:         "The comparison scope is available, but deterministic analysis and evidence verification have not run.",
+			DecisionTitle:   "Merge decision pending analysis.",
+			DecisionMessage: "Run the configured analyzers and requested review stages before interpreting this report as a safety verdict.",
+		}
+	}
+	switch {
+	case gate.Incomplete && options.FailOnIncomplete:
+		return htmlVerdict{
+			Class: "incomplete", Title: "Review incomplete", Label: "Blocked", Count: "merge gate blocked", Caption: "Rerun required",
+			Summary:         "The merge gate is blocked because one or more required review stages did not complete.",
+			DecisionTitle:   "Merge gate blocked by an incomplete review.",
+			DecisionMessage: "Restore the incomplete stage and rerun Aegis. Findings from completed stages remain visible, but this report must not be interpreted as a clean review.",
+		}
+	case gate.BlockedByFinding:
+		priority := strings.ToUpper(string(gate.Highest))
+		threshold := strings.ToUpper(string(options.FailOn))
+		return htmlVerdict{
+			Class: "blocked", Title: "Merge blocked", Label: "Blocked", Count: priority + " finding", Caption: "Fix required",
+			Summary:         fmt.Sprintf("A %s finding met the configured %s merge threshold.", priority, threshold),
+			DecisionTitle:   "A verified finding blocks this change.",
+			DecisionMessage: "Inspect the evidence below, correct the affected code, and rerun Aegis before merging.",
+		}
+	case gate.BlockedByNeedsReview:
+		priority := strings.ToUpper(string(gate.NeedsReviewHighest))
+		return htmlVerdict{
+			Class: "needs-review", Title: "Human review required", Label: "Blocked", Count: priority + " unresolved", Caption: "Decision required",
+			Summary:         "An unresolved high-risk hypothesis reached the configured needs-review threshold.",
+			DecisionTitle:   "Merge gate blocked pending human review.",
+			DecisionMessage: "Inspect the unresolved verification evidence and record a human decision before merging.",
+		}
+	case gate.NeedsReview:
+		return htmlVerdict{
+			Class: "needs-review", Title: "Human review required", Label: "Review", Count: findings, Caption: "Inspect hypotheses",
+			Summary:         "The automated gate passed, but unresolved hypotheses still require human judgment.",
+			DecisionTitle:   "Automated checks passed with unresolved hypotheses.",
+			DecisionMessage: "Review the inconclusive evidence below before making the final merge decision.",
+		}
+	case gate.Incomplete:
+		return htmlVerdict{
+			Class: "degraded", Title: "Review incomplete", Label: "Passed", Count: findings, Caption: "Allowed by policy",
+			Summary:         "The merge gate passed because incomplete-stage blocking is disabled, but required review coverage is incomplete.",
+			DecisionTitle:   "Merge gate passed with an incomplete review.",
+			DecisionMessage: "Inspect the incomplete-stage reasons before merging; the current policy explicitly permits this reduced coverage.",
+		}
+	case gate.Degraded:
+		return htmlVerdict{
+			Class: "degraded", Title: "Review degraded", Label: "Passed", Count: findings, Caption: "Coverage reduced",
+			Summary:         "The deterministic merge gate passed, but an optional review stage completed with reduced coverage.",
+			DecisionTitle:   "Merge gate passed with degraded coverage.",
+			DecisionMessage: "Deterministic evidence remains valid. Inspect the degraded-stage reason before relying on optional Agent coverage.",
+		}
+	case len(report.Findings) > 0:
+		return htmlVerdict{
+			Class: "advisory", Title: "Review complete", Label: "Passed", Count: findings, Caption: "Advisory findings",
+			Summary:         "The merge gate passed. Evidence-bearing findings remain below the configured blocking threshold.",
+			DecisionTitle:   "Merge gate passed with advisory findings.",
+			DecisionMessage: "Review the non-blocking findings below and decide whether to address them in this change or track them separately.",
+		}
+	default:
+		return htmlVerdict{
+			Class: "clear", Title: "Review complete", Label: "Passed", Count: "no findings", Caption: "Ready to merge",
+			Summary:         "All requested review stages completed without evidence-bearing findings.",
+			DecisionTitle:   "Merge gate passed without findings.",
+			DecisionMessage: "No verified issue crossed the configured thresholds for this comparison.",
+		}
+	}
 }
 
 func riskClass(report review.ReviewReport) string {
@@ -231,9 +355,9 @@ func candidateVerdictLabel(verdict review.CandidateVerdict) string {
 
 func severityLabel(severity review.Severity) string {
 	if severity == "" {
-		return "Unknown"
+		return "P3"
 	}
-	return strings.ToUpper(string(severity[:1])) + string(severity[1:])
+	return strings.ToUpper(string(githubreport.PriorityForSeverity(severity)))
 }
 
 func statusLabel(status review.FileStatus) string {
@@ -678,9 +802,12 @@ const htmlTemplateSource = `<!doctype html>
       .verdict-panel { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
       details > * { display: block; }
     }
+
+    {{reportCSS}}
   </style>
 </head>
-<body>
+<body id="top">
+  <a class="skip-link" href="#findings-heading">Skip to findings</a>
   <main class="report-shell">
     <header class="masthead">
       <div class="brand">
@@ -688,34 +815,110 @@ const htmlTemplateSource = `<!doctype html>
           <path d="M16 1.8 29 6.7v9.9c0 8.2-5.2 14.6-13 17.6C8.2 31.2 3 24.8 3 16.6V6.7L16 1.8Z" fill="none" stroke="currentColor" stroke-width="2"/>
           <path d="m10.1 18.4 3.8 3.8 8.5-9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/>
         </svg>
-        <div><span class="brand-name">AegisCodeAgent</span><span class="brand-kind">Review dossier</span></div>
+        <div><span class="brand-name">AegisCodeAgent</span><span class="brand-kind">Evidence review dossier</span></div>
       </div>
       <div class="generated">{{formatTime .GeneratedAt}}</div>
     </header>
 
+    <nav class="report-nav" aria-label="Report sections">
+      <a href="#decision-heading">Decision</a>
+      <a href="#findings-heading"><span class="nav-alert" aria-hidden="true"></span>Findings <b>{{len .Findings}}</b></a>
+      {{if ne .Verification.Status "not_run"}}<a href="#verification-heading">Verification</a>{{end}}
+      {{if .Analysis.Tools}}<a href="#analyzers-heading">Analyzers</a>{{end}}
+      {{if ne .Agent.Status "not_run"}}<a href="#agent-heading">Agent trace</a>{{end}}
+      {{if ne .Context.Status "not_run"}}<a href="#context-heading">Context</a>{{end}}
+      <a href="#files-heading">Files</a>
+    </nav>
+
     <section class="hero">
       <div class="hero-copy">
-        <p class="eyebrow">Change review · {{.SchemaVersion}}</p>
-        <h1>{{.Comparison.Base}} <span class="comparison-arrow">→</span> {{.Comparison.Head}}</h1>
-        <p class="repository">{{.Comparison.Repository}}</p>
+        <p class="eyebrow">Pull request evidence · Schema {{.SchemaVersion}}</p>
+        <h1>{{.Verdict.Title}}</h1>
+        <p class="hero-summary">{{.Verdict.Summary}}</p>
+        <p class="repository"><span>Repository workspace</span>{{.Comparison.Repository}}</p>
         <div class="commits">
           <code class="commit">base {{shortCommit .Comparison.BaseCommit}}</code>
+          <span class="comparison-arrow" aria-hidden="true">→</span>
           <code class="commit">head {{shortCommit .Comparison.HeadCommit}}</code>
         </div>
       </div>
-      <aside class="verdict-panel risk-{{riskClass .}}" aria-label="Review verdict: {{riskLabel .}}">
+      <aside class="verdict-panel risk-{{.Verdict.Class}}" aria-label="Review verdict: {{.Verdict.Title}}">
         <div class="verdict">
-          <span class="verdict-label">{{riskLabel .}}</span>
-          <span class="verdict-count">{{analysisLabel .Analysis}}</span>
+          <span class="verdict-label">{{.Verdict.Label}}</span>
+          <span class="verdict-count">{{.Verdict.Count}}</span>
         </div>
+        <p class="verdict-caption">{{.Verdict.Caption}}</p>
       </aside>
     </section>
 
     <section class="metrics" aria-label="Review summary">
       <div class="metric"><span class="metric-label">Changed files</span><span class="metric-value">{{.Summary.ChangedFiles}}</span></div>
       <div class="metric"><span class="metric-label">Line movement</span><span class="metric-value"><span class="plus">+{{.Summary.Additions}}</span> <span class="minus">−{{.Summary.Deletions}}</span></span></div>
-      <div class="metric"><span class="metric-label">Critical / high</span><span class="metric-value">{{.Summary.Critical}} / {{.Summary.High}}</span></div>
-      <div class="metric"><span class="metric-label">Medium / low</span><span class="metric-value">{{.Summary.Medium}} / {{.Summary.Low}}</span></div>
+      <div class="metric"><span class="metric-label">P0 / P1</span><span class="metric-value metric-clear">{{.Counts.P0}} / {{.Counts.P1}}</span></div>
+      <div class="metric"><span class="metric-label">P2 / P3</span><span class="metric-value metric-review">{{.Counts.P2}} / {{.Counts.P3}}</span></div>
+    </section>
+
+    <section class="decision-section" aria-labelledby="decision-heading">
+      <div class="decision-copy">
+        <span class="decision-kicker">Merge decision trace</span>
+        <h2 id="decision-heading">{{.Verdict.DecisionTitle}}</h2>
+        <p>{{.Verdict.DecisionMessage}}</p>
+        <div class="decision-notes">
+          <span><b>{{if .Gate.Blocked}}Blocked{{else}}Passed{{end}}</b> merge gate</span>
+          <span><b>{{.Counts.P0}}</b> P0 · <b>{{.Counts.P1}}</b> P1</span>
+          <span><b>{{.Counts.P2}}</b> P2 · <b>{{.Counts.P3}}</b> P3</span>
+          <span>threshold <b>{{priorityLabel .Options.FailOn}}</b></span>
+        </div>
+        {{if .Gate.IncompleteReasons}}<ul class="decision-reasons">{{range .Gate.IncompleteReasons}}<li>{{.}}</li>{{end}}</ul>{{end}}
+        {{if .Gate.DegradedReasons}}<ul class="decision-reasons degraded">{{range .Gate.DegradedReasons}}<li>{{.}}</li>{{end}}</ul>{{end}}
+      </div>
+      <ol class="stage-track" aria-label="Review pipeline status">
+        <li class="stage-complete"><span>01</span><div><b>Diff</b><small>Complete · {{.Summary.ChangedFiles}} files</small></div></li>
+        <li class="stage-{{.Analysis.Status}}"><span>02</span><div><b>Static analysis</b><small>{{analysisLabel .Analysis}} · {{len .Analysis.Tools}} tools</small></div></li>
+        <li class="stage-{{.Context.Status}}"><span>03</span><div><b>Repository context</b><small>{{contextLabel .Context.Status}} · {{.Context.Stats.SymbolsSelected}} symbols</small></div></li>
+        <li class="stage-{{.Agent.Status}}"><span>04</span><div><b>Reasoning agent</b><small>{{agentLabel .Agent.Status}} · {{len .Agent.Candidates}} candidates</small></div></li>
+        <li class="stage-{{.Verification.Status}}"><span>05</span><div><b>Verifier</b><small>{{verificationLabel .Verification.Status}} · {{.Verification.Summary.Promoted}} promoted</small></div></li>
+      </ol>
+    </section>
+
+    <section class="section findings-section" aria-labelledby="findings-heading">
+      <div class="section-heading">
+        <h2 id="findings-heading">Review findings</h2>
+        <p class="section-note">Evidence ranked consistently from P0 to P3</p>
+      </div>
+      {{if .Findings}}
+      <div class="risk-spine">
+        {{range .Findings}}
+        <article class="finding severity-{{.Severity}}">
+          <div class="finding-top">
+            <h3>{{.Title}}</h3>
+            <span class="severity">{{severityLabel .Severity}}</span>
+          </div>
+          <div class="finding-meta">
+            <span>{{.Category}}</span>
+            <span>{{location .Location}}</span>
+            <span>{{confidence .Confidence}} confidence</span>
+            {{if .Source}}<span>{{.Source}}</span>{{end}}
+          </div>
+          {{if .Description}}<p class="finding-description">{{.Description}}</p>{{end}}
+          {{if hasDetails .}}
+          <details>
+            <summary>Inspect evidence and recommendation</summary>
+            <div class="detail-grid">
+              {{if .Evidence}}<div class="detail-block"><h4>Evidence</h4><pre>{{.Evidence}}</pre></div>{{end}}
+              {{if .Suggestion}}<div class="detail-block"><h4>Recommendation</h4><p>{{.Suggestion}}</p></div>{{end}}
+            </div>
+          </details>
+          {{end}}
+        </article>
+        {{end}}
+      </div>
+      {{else}}
+      <div class="empty-state">
+        <svg class="empty-icon" viewBox="0 0 44 50" aria-hidden="true"><path d="M22 2 40 9v13.4c0 11-7.2 19.7-18 23.6C11.2 42.1 4 33.4 4 22.4V9l18-7Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m14 25 5 5 11-12" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
+        <div><strong>{{emptyTitle .ReviewReport}}</strong><p>{{emptyMessage .ReviewReport}}</p></div>
+      </div>
+      {{end}}
     </section>
 
     <section class="section" aria-labelledby="files-heading">
@@ -724,6 +927,8 @@ const htmlTemplateSource = `<!doctype html>
         <p class="section-note">Files touched by this comparison</p>
       </div>
       {{if .Files}}
+      <details class="section-disclosure file-disclosure">
+        <summary><span><b>{{.Summary.ChangedFiles}} changed files</b><small>+{{.Summary.Additions}} / −{{.Summary.Deletions}} lines</small></span><em>Inspect change surface</em></summary>
       <div class="file-table">
         {{range .Files}}
         <div class="file-row">
@@ -735,6 +940,7 @@ const htmlTemplateSource = `<!doctype html>
         </div>
         {{end}}
       </div>
+      </details>
       {{else}}
       <div class="no-files">No changed files were found for this comparison.</div>
       {{end}}
@@ -796,6 +1002,9 @@ const htmlTemplateSource = `<!doctype html>
         <span class="context-state {{.Context.Status}}">{{contextLabel .Context.Status}}</span>
         <span>{{.Context.Stats.SymbolsSelected}} symbols selected{{if .Context.Truncated}} · budget reached{{end}}</span>
       </div>
+      {{if or .Context.ChangedSymbols .Context.RelatedSymbols}}
+      <details class="section-disclosure context-disclosure">
+        <summary><span><b>{{.Context.Stats.SymbolsSelected}} selected symbols</b><small>AST, type and relationship evidence used for reasoning</small></span><em>Inspect repository context</em></summary>
       {{if .Context.ChangedSymbols}}
       <div class="symbol-group">
         <h3>Changed symbols</h3>
@@ -827,6 +1036,8 @@ const htmlTemplateSource = `<!doctype html>
         </div>
       </div>
       {{end}}
+      </details>
+      {{end}}
       {{if .Context.Warnings}}<ul class="context-warnings">{{range .Context.Warnings}}<li>{{.}}</li>{{end}}</ul>{{end}}
     </section>
     {{end}}
@@ -852,6 +1063,8 @@ const htmlTemplateSource = `<!doctype html>
       <p class="unverified-notice"><strong>Verification boundary:</strong> model candidates are hypotheses and do not affect the verdict above until a deterministic verifier accepts them.</p>
       {{if .Agent.Summary}}<p class="agent-summary">{{.Agent.Summary}}</p>{{end}}
       {{if .Agent.ToolCalls}}
+      <details class="section-disclosure audit-disclosure">
+        <summary><span><b>{{len .Agent.ToolCalls}} audited tool calls</b><small>Read-only code retrieval performed by the reasoning agent</small></span><em>Inspect agent trace</em></summary>
       <div class="agent-tools" aria-label="Agent tool audit">
         {{range .Agent.ToolCalls}}
         <div class="agent-tool-row">
@@ -863,6 +1076,7 @@ const htmlTemplateSource = `<!doctype html>
         </div>
         {{end}}
       </div>
+      </details>
       {{end}}
       {{if .Agent.Candidates}}
       <div class="candidate-list">
@@ -961,47 +1175,7 @@ const htmlTemplateSource = `<!doctype html>
     </section>
     {{end}}
 
-    <section class="section" aria-labelledby="findings-heading">
-      <div class="section-heading">
-        <h2 id="findings-heading">Review findings</h2>
-        <p class="section-note">Evidence ranked by review severity</p>
-      </div>
-      {{if .Findings}}
-      <div class="risk-spine">
-        {{range .Findings}}
-        <article class="finding severity-{{.Severity}}">
-          <div class="finding-top">
-            <h3>{{.Title}}</h3>
-            <span class="severity">{{severityLabel .Severity}}</span>
-          </div>
-          <div class="finding-meta">
-            <span>{{.Category}}</span>
-            <span>{{location .Location}}</span>
-            <span>{{confidence .Confidence}} confidence</span>
-            {{if .Source}}<span>{{.Source}}</span>{{end}}
-          </div>
-          {{if .Description}}<p class="finding-description">{{.Description}}</p>{{end}}
-          {{if hasDetails .}}
-          <details>
-            <summary>Inspect evidence and recommendation</summary>
-            <div class="detail-grid">
-              {{if .Evidence}}<div class="detail-block"><h4>Evidence</h4><pre>{{.Evidence}}</pre></div>{{end}}
-              {{if .Suggestion}}<div class="detail-block"><h4>Recommendation</h4><p>{{.Suggestion}}</p></div>{{end}}
-            </div>
-          </details>
-          {{end}}
-        </article>
-        {{end}}
-      </div>
-      {{else}}
-      <div class="empty-state">
-        <svg class="empty-icon" viewBox="0 0 44 50" aria-hidden="true"><path d="M22 2 40 9v13.4c0 11-7.2 19.7-18 23.6C11.2 42.1 4 33.4 4 22.4V9l18-7Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m14 25 5 5 11-12" fill="none" stroke="currentColor" stroke-width="2.4"/></svg>
-        <div><strong>{{emptyTitle .}}</strong><p>{{emptyMessage .}}</p></div>
-      </div>
-      {{end}}
-    </section>
-
-    <footer class="footer"><span>Generated by AegisCodeAgent</span><span>Schema {{.SchemaVersion}} · Evidence-driven review</span></footer>
+    <footer class="footer"><span>Generated by AegisCodeAgent · {{formatTime .GeneratedAt}}</span><a href="#top">Back to top ↑</a><span>Schema {{.SchemaVersion}} · Evidence-driven review</span></footer>
   </main>
 </body>
 </html>
