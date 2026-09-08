@@ -116,4 +116,4 @@ jobs:
           AEGIS_PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           AEGIS_HEAD: ${{ needs.prepare.outputs.head }}
         run: |
-          printf '[Open the public HTML report](%s) — commit `%s`. This opt-in Pages site contains only the latest manually published report.\n' "$AEGIS_PAGE_URL" "$AEGIS_HEAD" >> "$GITHUB_STEP_SUMMARY"
+          printf '[Open the public HTML report](%s) — commit \140%s\140. This opt-in Pages site contains only the latest manually published report.\n' "$AEGIS_PAGE_URL" "$AEGIS_HEAD" >> "$GITHUB_STEP_SUMMARY"

@@ -3,280 +3,261 @@ name: Aegis Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened, ready_for_review]
-  workflow_call:
-    inputs:
-      provider:
-        description: 'none, deepseek, openai-compatible, or orcarouter'
-        type: string
-        default: deepseek
-      model:
-        description: 'A fixed model identifier; empty uses the provider preset'
-        type: string
-        default: ''
-      base-url:
-        description: 'Optional HTTPS endpoint, configured by the workflow owner'
-        type: string
-        default: ''
-      allow-custom-endpoint:
-        description: 'Explicitly permit sending code and the key to a custom endpoint'
-        type: boolean
-        default: false
-      fail-on:
-        type: string
-        default: p1
-      fail-on-needs-review:
-        type: string
-        default: p0
-      fail-on-incomplete:
-        type: boolean
-        default: true
-      require-agent:
-        description: 'Block unless the Reasoning Agent completes; also blocks static-only fork reviews'
-        type: boolean
-        default: false
-    secrets:
-      provider-api-key:
-        description: 'Optional provider key; never passed to fork PRs or analysis containers'
-        required: false
-      DEEPSEEK_API_KEY:
-        description: 'Legacy DeepSeek-only key for Aegis self-review; external callers should use provider-api-key'
-        required: false
 
-permissions: {}
+permissions:
+  contents: read
+  pull-requests: write
 
 concurrency:
-  group: aegis-review-${{ github.repository }}-${{ github.event.pull_request.number }}
+  group: aegis-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
-  prepare:
-    name: Resolve trusted reviewer
+  review:
+    name: Aegis Code Review
     runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: read
-      contents: read
-    outputs:
-      reviewer-sha: ${{ steps.identity.outputs.reviewer-sha }}
-      base: ${{ steps.identity.outputs.base }}
-      head: ${{ steps.identity.outputs.head }}
-      number: ${{ steps.identity.outputs.number }}
-      same-repository: ${{ steps.identity.outputs.same-repository }}
-    steps:
-      # github.repository/workflow_sha refer to the CALLER in a reusable
-      # workflow. Resolve the CALLED workflow's SHA from GitHub's run metadata.
-      # No PR checkout, secrets, OIDC token, or caller-supplied source ref here.
-      - name: Resolve immutable workflow identity and PR commits
-        id: identity
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
-        with:
-          script: |
-            const pr = context.payload.pull_request;
-            if (context.eventName !== 'pull_request' || !pr) {
-              throw new Error('Aegis requires a pull_request event; pull_request_target is not supported.');
-            }
-            const source = 'Molly166/AegisCodeAgent';
-            const workflow = source + '/.github/workflows/aegis-review.yml@';
-            const { data: run } = await github.request(
-              'GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}', {
-                ...context.repo, run_id: context.runId,
-                attempt_number: Number(process.env.GITHUB_RUN_ATTEMPT),
-              });
-            const refs = (run.referenced_workflows || []).filter(ref => ref.path.startsWith(workflow));
-            let reviewerSHA;
-            if (refs.length === 1) {
-              reviewerSHA = refs[0].sha;
-            } else if (refs.length === 0 && context.repo.owner + '/' + context.repo.repo === source &&
-                       run.path.split('@')[0] === '.github/workflows/aegis-review.yml') {
-              reviewerSHA = pr.base.sha; // Aegis self-review always uses trusted Base.
-            } else {
-              throw new Error('Cannot unambiguously identify the called Aegis workflow. Pin one Aegis call per run.');
-            }
-            for (const sha of [reviewerSHA, pr.base.sha, pr.head.sha]) {
-              if (!/^[0-9a-f]{40}$/.test(sha)) throw new Error('Expected an immutable Git commit SHA.');
-            }
-            if (pr.base.repo.full_name !== context.repo.owner + '/' + context.repo.repo) {
-              throw new Error('PR base repository does not match the workflow repository.');
-            }
-            core.setOutput('reviewer-sha', reviewerSHA);
-            core.setOutput('base', pr.base.sha);
-            core.setOutput('head', pr.head.sha);
-            core.setOutput('number', String(pr.number));
-            core.setOutput('same-repository', pr.head.repo.full_name === pr.base.repo.full_name);
+    timeout-minutes: 15
+    env:
+      AEGIS_ARTIFACT_NAME: aegis-review-report
+      AEGIS_FAIL_ON: p1
+      AEGIS_FAIL_ON_NEEDS_REVIEW: p0
 
-  analyze:
-    name: Sandboxed analysis
-    needs: prepare
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    permissions:
-      contents: read
-    outputs:
-      exit-code: ${{ steps.review.outputs.exit-code }}
     steps:
-      - name: Check out trusted Aegis source
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Build the reviewer from the trusted PR base, never from code that is
+      # proposing changes to Aegis itself.
+      - name: Check out trusted reviewer
+        uses: actions/checkout@v7
         with:
-          repository: Molly166/AegisCodeAgent
-          ref: ${{ needs.prepare.outputs.reviewer-sha }}
+          ref: ${{ github.event.pull_request.base.sha }}
           path: reviewer
+          fetch-depth: 1
           persist-credentials: false
 
-      - name: Check out target repository history
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The default pull_request checkout fetches GitHub's merge ref, which
+      # contains both base and head commits. The next step moves the worktree to
+      # the exact head so Aegis can enforce its evidence-integrity guard.
+      - name: Check out pull request
+        uses: actions/checkout@v7
         with:
-          ref: ${{ github.ref }}
           path: target
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Select exact PR Head
+      - name: Select exact pull-request head
         env:
-          AEGIS_HEAD: ${{ needs.prepare.outputs.head }}
-          AEGIS_BASE: ${{ needs.prepare.outputs.base }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          git -C target -c core.hooksPath=/dev/null checkout --detach "$AEGIS_HEAD"
-          git -C target cat-file -e "$AEGIS_BASE^{commit}"
-          test "$(git -C target rev-parse HEAD)" = "$AEGIS_HEAD"
+          git -C target checkout --detach "$HEAD_SHA"
+          git -C target cat-file -e "$BASE_SHA^{commit}"
           test -z "$(git -C target status --porcelain=v1 --untracked-files=all)"
 
-      - name: Set up trusted Go toolchain
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      - name: Set up Go
+        uses: actions/setup-go@v7
         with:
-          go-version: '1.26.6'
-          cache: false
+          go-version: '1.26.x'
+          cache-dependency-path: reviewer/go.mod
+          cache: true
 
-      - name: Build reviewer and sandbox from trusted source
-        working-directory: reviewer
-        run: |
-          mkdir -p "$GITHUB_WORKSPACE/bin" "$GITHUB_WORKSPACE/evidence"
-          go build -trimpath -o "$GITHUB_WORKSPACE/bin/aegis" ./cmd/aegis
-          "$GITHUB_WORKSPACE/bin/aegis" review --help 2>&1 | grep -q -- '-sandbox'
-          docker build --tag aegis-analysis:local --file scripts/analysis.Dockerfile scripts
-
-      # Only downloads dependencies; never runs target tests. No model secret,
-      # host home, Docker socket, GitHub control file or git credential is mounted.
-      - name: Prepare isolated dependency cache without secrets
-        run: bash reviewer/scripts/prepare-analysis-cache.sh "$GITHUB_WORKSPACE/target" "$RUNNER_TEMP/aegis-modcache"
-
-      - name: Review exact PR Head
-        id: review
+      - name: Install pinned static analyzers
         env:
-          AEGIS_BASE: ${{ needs.prepare.outputs.base }}
-          AEGIS_HEAD: ${{ needs.prepare.outputs.head }}
-          AEGIS_PROVIDER: ${{ inputs.provider || 'deepseek' }}
-          AEGIS_MODEL: ${{ inputs.model }}
-          AEGIS_BASE_URL: ${{ inputs.base-url }}
-          AEGIS_ALLOW_CUSTOM_ENDPOINT: ${{ inputs.allow-custom-endpoint || false }}
-          AEGIS_PROVIDER_API_KEY: ${{ needs.prepare.outputs.same-repository == 'true' && github.actor != 'dependabot[bot]' && (secrets.provider-api-key || ((inputs.provider == '' || inputs.provider == 'deepseek') && secrets.DEEPSEEK_API_KEY)) || '' }}
-        run: bash reviewer/scripts/run-ci-review.sh
+          GOBIN: ${{ github.workspace }}/bin/analyzers
+        run: |
+          mkdir -p "$GOBIN"
+          go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
+          go install github.com/securego/gosec/v2/cmd/gosec@v2.28.0
+          echo "$GOBIN" >> "$GITHUB_PATH"
 
-      - name: Preserve JSON evidence even on a blocked or incomplete review
-        if: ${{ always() && hashFiles('evidence/review.json') != '' }}
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
-        with:
-          name: aegis-review-evidence-${{ github.run_attempt }}
-          path: evidence/review.json
-          if-no-files-found: error
-          retention-days: 14
-
-  publish:
-    name: Evidence report and PR feedback
-    needs: [prepare, analyze]
-    if: ${{ always() && needs.prepare.result == 'success' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      exit-code: ${{ steps.gate.outputs.exit-code }}
-    permissions:
-      actions: read
-      contents: read
-      pull-requests: write
-    env:
-      AEGIS_BASE: ${{ needs.prepare.outputs.base }}
-      AEGIS_HEAD: ${{ needs.prepare.outputs.head }}
-      AEGIS_FAIL_ON: ${{ inputs.fail-on || 'p1' }}
-      AEGIS_FAIL_ON_NEEDS_REVIEW: ${{ inputs.fail-on-needs-review || 'p0' }}
-      # toJSON preserves an explicit false supplied by a reusable caller.
-      AEGIS_FAIL_ON_INCOMPLETE: ${{ inputs.provider != '' && toJSON(inputs.fail-on-incomplete) || 'true' }}
-      AEGIS_ARTIFACT_NAME: aegis-review-report-${{ github.run_attempt }}
-      AEGIS_REQUIRE_AGENT: ${{ inputs.require-agent || false }}
-    steps:
-      - name: Check out trusted publisher on a fresh runner
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: Molly166/AegisCodeAgent
-          ref: ${{ needs.prepare.outputs.reviewer-sha }}
-          path: reviewer
-          persist-credentials: false
-
-      - name: Set up trusted Go toolchain
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26.6'
-          cache: false
-
-      - name: Build trusted publisher
+      - name: Build trusted Aegis reviewer
         working-directory: reviewer
         run: |
           mkdir -p "$GITHUB_WORKSPACE/bin" "$GITHUB_WORKSPACE/artifacts"
           go build -trimpath -o "$GITHUB_WORKSPACE/bin/aegis" ./cmd/aegis
 
-      - name: Download JSON evidence from this run attempt
-        id: evidence
-        continue-on-error: true
-        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
-        with:
-          name: aegis-review-evidence-${{ github.run_attempt }}
-          path: evidence
+      # This fallback is used only by the pull request that first introduces
+      # the GitHub publisher. Review analysis still runs with the base binary,
+      # and reasoning secrets stay disabled until the hardened reviewer
+      # has landed on the base branch.
+      - name: Select trusted publisher
+        id: toolchain
+        shell: bash
+        run: |
+          # Preserve the legacy capability-by-capability output behavior during migration.
+          # shellcheck disable=SC2129
+          if "$GITHUB_WORKSPACE/bin/aegis" github --help >/dev/null 2>&1; then
+            echo "publisher=$GITHUB_WORKSPACE/bin/aegis" >> "$GITHUB_OUTPUT"
+            echo "secure_reasoning=true" >> "$GITHUB_OUTPUT"
+            if "$GITHUB_WORKSPACE/bin/aegis" github --help 2>&1 | grep -q -- '--fail-on-needs-review'; then
+              echo "needs_review_gate=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "needs_review_gate=false" >> "$GITHUB_OUTPUT"
+              echo "::notice title=Aegis compatibility mode::The trusted base publisher predates Needs Review gating. The new gate activates after this version lands on the base branch."
+            fi
+          else
+            echo "::notice title=Aegis bootstrap mode::The base branch predates the GitHub publisher. This run is static-only and uses the proposed publisher solely to render existing JSON evidence."
+            (
+              cd target
+              go build -trimpath -o "$GITHUB_WORKSPACE/bin/aegis-publisher" ./cmd/aegis
+            )
+            echo "publisher=$GITHUB_WORKSPACE/bin/aegis-publisher" >> "$GITHUB_OUTPUT"
+            echo "secure_reasoning=false" >> "$GITHUB_OUTPUT"
+            echo "needs_review_gate=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - name: Validate evidence and independently compute merge gate
-        id: gate
-        if: always()
+      - name: Review pull-request changes
+        id: review
         env:
-          AEGIS_ANALYSIS_RESULT: ${{ needs.analyze.result }}
-          AEGIS_ANALYSIS_EXIT: ${{ needs.analyze.outputs.exit-code }}
-        run: node reviewer/scripts/publish-report.cjs
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          SAME_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+          SECURE_REASONING: ${{ steps.toolchain.outputs.secure_reasoning }}
+          # Never expose a secret to the bootstrap reviewer or a fork. The
+          # trusted base binary must first prove that it supports child-process
+          # credential isolation.
+          DEEPSEEK_API_KEY: ${{ steps.toolchain.outputs.secure_reasoning == 'true' && github.event.pull_request.head.repo.full_name == github.repository && secrets.DEEPSEEK_API_KEY || '' }}
+        shell: bash
+        run: |
+          set -u
+          agent_args=(--agent-provider none)
+          reasoning_enabled=false
+          if [[ "$SECURE_REASONING" == "true" && "$SAME_REPOSITORY" == "true" && -n "${DEEPSEEK_API_KEY:-}" ]]; then
+            agent_args=(--agent-provider deepseek)
+            reasoning_enabled=true
+            echo "::notice title=Aegis review mode::DeepSeek reasoning and deterministic verification are enabled."
+          elif [[ "$SAME_REPOSITORY" != "true" ]]; then
+            echo "::notice title=Aegis review mode::Fork pull request: running deterministic static review without repository secrets."
+          else
+            echo "::notice title=Aegis review mode::DEEPSEEK_API_KEY is not configured: running deterministic static review."
+          fi
 
-      - name: Upload complete evidence report
-        id: report
-        if: ${{ always() && hashFiles('artifacts/**') != '' }}
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+          set +e
+          "$GITHUB_WORKSPACE/bin/aegis" review \
+            --repo "$GITHUB_WORKSPACE/target" \
+            --base "$BASE_SHA" \
+            --head "$HEAD_SHA" \
+            --analyzers all \
+            --format json \
+            --output "$GITHUB_WORKSPACE/artifacts/review.json" \
+            "${agent_args[@]}"
+          review_exit=$?
+          set -e
+
+          echo "exit_code=$review_exit" >> "$GITHUB_OUTPUT"
+          echo "reasoning_enabled=$reasoning_enabled" >> "$GITHUB_OUTPUT"
+          if [[ "$review_exit" -ne 0 ]]; then
+            echo "::warning title=Aegis review incomplete::The review engine returned exit code $review_exit; the publisher will preserve diagnostics and fail the merge gate."
+          fi
+
+      - name: Publish summary, annotations, and merge gate
+        id: publish
+        shell: bash
+        run: |
+          summary_path="$GITHUB_WORKSPACE/artifacts/review-summary.md"
+          report_path="$GITHUB_WORKSPACE/artifacts/review.json"
+          needs_review_args=()
+          fail_on_incomplete=true
+          if [[ "${{ steps.toolchain.outputs.needs_review_gate }}" == "true" ]]; then
+            needs_review_args=(--fail-on-needs-review "$AEGIS_FAIL_ON_NEEDS_REVIEW")
+          elif jq -e '
+            .analysis.status == "complete" and
+            .context.status == "complete" and
+            .agent.status == "partial" and
+            .verification.status == "partial" and
+            ((.verification.warnings // []) | length > 0) and
+            ((.verification.warnings // []) | all(. == "reasoning agent was partial"))
+          ' "$report_path" >/dev/null; then
+            # v0.6 copied an optional Agent coverage warning into the Verifier
+            # status. Waive only that exact legacy cascade while keeping real
+            # analyzer/context/verifier incompleteness fail-closed.
+            fail_on_incomplete=false
+            echo "::notice title=Aegis compatibility mode::Optional Reasoning Agent degradation is visible but does not override the deterministic P0/P1 merge gate."
+          fi
+          set +e
+          "${{ steps.toolchain.outputs.publisher }}" github \
+            --report "$report_path" \
+            --html-output "$GITHUB_WORKSPACE/artifacts/review.html" \
+            --summary "$summary_path" \
+            --artifact-name "$AEGIS_ARTIFACT_NAME" \
+            --fail-on "$AEGIS_FAIL_ON" \
+            --fail-on-incomplete="$fail_on_incomplete" \
+            --max-annotations 50 \
+            "${needs_review_args[@]}"
+          publish_exit=$?
+          set -e
+
+          if [[ ! -s "$summary_path" ]]; then
+            printf '# 🛡️ Aegis Code Review\n\n> ❌ **Review publishing failed.** Open the workflow run for diagnostics.\n' > "$summary_path"
+          fi
+          cat "$summary_path" >> "$GITHUB_STEP_SUMMARY"
+          exit "$publish_exit"
+
+      - name: Upload complete Aegis evidence report
+        id: upload-report
+        if: always() && hashFiles('artifacts/**') != ''
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ env.AEGIS_ARTIFACT_NAME }}
           path: artifacts/
           if-no-files-found: error
           retention-days: 14
 
-      - name: Refresh bot-owned PR feedback only for the current Head
-        if: ${{ always() && needs.prepare.outputs.same-repository == 'true' && github.actor != 'dependabot[bot]' && steps.report.outcome == 'success' }}
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+      - name: Publish pull-request review feedback
+        if: >-
+          ${{
+            always() &&
+            github.event.pull_request.head.repo.full_name == github.repository &&
+            github.actor != 'dependabot[bot]' &&
+            steps.upload-report.outcome == 'success'
+          }}
+        uses: actions/github-script@v9
         env:
-          AEGIS_ARTIFACT_URL: ${{ steps.report.outputs.artifact-url }}
+          AEGIS_SUMMARY_PATH: ${{ github.workspace }}/artifacts/review-summary.md
+          AEGIS_ARTIFACT_URL: ${{ steps.upload-report.outputs.artifact-url }}
           AEGIS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          AEGIS_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          retries: 3
           script: |
-            const publish = require(process.env.GITHUB_WORKSPACE + '/reviewer/scripts/pr-comment.cjs');
-            await publish({ github, context, core });
+            const fs = require('fs');
+            const marker = '<!-- aegis-code-agent-review -->';
+            const summary = fs.readFileSync(process.env.AEGIS_SUMMARY_PATH, 'utf8').trim();
+            const artifactURL = process.env.AEGIS_ARTIFACT_URL;
+            const runURL = process.env.AEGIS_RUN_URL;
+            const headSHA = process.env.AEGIS_HEAD_SHA.slice(0, 12);
+            const body = [
+              marker,
+              summary,
+              '',
+              '---',
+              '',
+              '[⬇️ Download the complete HTML evidence report](' + artifactURL + ') · [View workflow run](' + runURL + ')',
+              '',
+              '_Updated for `' + headSHA + '`. Aegis refreshes this comment after every review run._',
+            ].join('\n');
 
-  gate:
-    name: Aegis merge gate
-    needs: [prepare, analyze, publish]
-    # A skipped required check may be treated as success by GitHub. Always run
-    # this job, including when source resolution or the publisher failed.
-    if: always()
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions: {}
-    steps:
-      - name: Enforce review and delivery status after feedback is preserved
-        env:
-          AEGIS_PREPARE: ${{ needs.prepare.result }}
-          AEGIS_ANALYZE: ${{ needs.analyze.result }}
-          AEGIS_PUBLISH: ${{ needs.publish.result }}
-          AEGIS_GATE: ${{ needs.publish.outputs.exit-code }}
-        run: |
-          test "$AEGIS_PREPARE" = 'success'
-          test "$AEGIS_ANALYZE" = 'success'
-          test "$AEGIS_PUBLISH" = 'success'
-          test "$AEGIS_GATE" = '0'
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user?.type === 'Bot' && comment.body?.includes(marker)
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }

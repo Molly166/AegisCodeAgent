@@ -28,6 +28,14 @@ function executionCompatible(report, result, code) {
     [report.agent?.status, report.context?.status].some(status => ['partial', 'failed'].includes(status));
 }
 
+function writeFailureReport(output, message) {
+  const escaped = message.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
+  fs.writeFileSync(path.join(output, 'review.html'), '<!doctype html><html lang="en"><meta charset="utf-8">' +
+    '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Aegis — review incomplete</title>' +
+    '<body><main><h1>Review incomplete — merge gate blocked</h1><p>' + escaped +
+    '</p><p>No clean review conclusion is available. Inspect the workflow diagnostics before rerunning.</p></main></body></html>');
+}
+
 function publish(env = process.env) {
   const workspace = env.GITHUB_WORKSPACE;
   if (!workspace || !path.isAbsolute(workspace)) throw new Error('Absolute workspace required');
@@ -64,18 +72,26 @@ function publish(env = process.env) {
     reportValid = true;
     if (!executionCompatible(report, env.AEGIS_ANALYSIS_RESULT, env.AEGIS_ANALYSIS_EXIT)) {
       exitCode = 1;
-      fs.appendFileSync(summary, '\n\n> ❌ Review execution did not complete successfully. The merge gate is blocked even if the partial report contains no P0/P1 findings.\n');
+      const warning = '> ❌ **Review execution incomplete — merge gate blocked.** Findings below do not override this execution failure.\n\n';
+      fs.writeFileSync(summary, warning + fs.readFileSync(summary, 'utf8'));
+      const htmlPath = path.join(output, 'review.html');
+      const html = fs.readFileSync(htmlPath, 'utf8');
+      if (!/<body\b[^>]*>/i.test(html)) throw new Error('Trusted HTML renderer did not produce a document body');
+      fs.writeFileSync(htmlPath, html.replace(/(<body\b[^>]*>)/i,
+        '$1<div role="alert" style="background:#991b1b;color:white;padding:16px;font:600 16px system-ui">Review execution: BLOCKED. The review process did not complete successfully; findings below do not override this result.</div>'));
     }
   } catch (error) {
     exitCode = 1;
     reportValid = false;
     // Parser errors may contain attacker-controlled payloads: never echo them.
     fs.writeFileSync(summary, '# 🛡️ Aegis Code Review\n\n❌ **Review incomplete — merge gate blocked.** The evidence is missing, invalid, or does not match the requested commits. Inspect the workflow diagnostics and rerun.\n');
+    writeFailureReport(output, 'The evidence is missing, invalid, or does not match the requested commits.');
     console.error('Aegis publishing failed: evidence or trusted publisher validation did not complete.');
   }
   if (!fs.existsSync(summary)) {
     exitCode = 1;
     fs.writeFileSync(summary, '# 🛡️ Aegis Code Review\n\n❌ **Review incomplete — merge gate blocked.** The publisher did not produce a summary.\n');
+    writeFailureReport(output, 'The trusted publisher did not produce a summary.');
   }
   fs.writeFileSync(path.join(output, 'publication.json'), JSON.stringify({
     schema_version: 1, base: env.AEGIS_BASE, head: env.AEGIS_HEAD,

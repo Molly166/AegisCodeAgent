@@ -6,9 +6,11 @@ A Go-focused code-review agent that lives in GitHub pull requests. Aegis combine
 
 > **v1 release candidate, in development.** Reusable workflows, optional model providers, isolated analysis and real-code evaluation are implemented. A release tag, live provider quality results and a deployed report site are **not** implied. See [validation and limitations](docs/validation.md).
 
+> **Two-stage migration:** while `examples/aegis-review-v1-migration.yml` exists, this revision is stage 1 and retains the old active PR workflow. The four-job sandboxed/reusable workflow described below is **not yet active**. Stage 2 requires removing that file and activating v1 in `.github/workflows/aegis-review.yml`, only after the implementation has landed on trusted `master`. PR #12 exposed upgrade and CI failures; fixes still need online acceptance. Follow the [ordered migration plan](docs/github-action.md), never trust the target Head as a shortcut. Configuration activation alone does not prove a successful deployment.
+
 ## What you get
 
-When a PR is opened or updated, Aegis reviews its exact Head against its Base. It updates one bot comment, attaches file/line annotations, uploads a self-contained HTML report and returns an independent **Aegis merge gate** check.
+With the v1 workflow activated and validated, opening or updating a PR makes Aegis review its exact Head against its Base. It updates one bot comment, attaches file/line annotations, uploads a self-contained HTML report and returns an independent **Aegis merge gate** check.
 
 - **Findings first:** P0–P3, affected code, evidence and suggested action.
 - **No false clean:** unresolved model hypotheses stay visible as `Needs Review`; incomplete or degraded coverage is identified separately.
@@ -66,7 +68,7 @@ This is a container boundary, not a virtual machine or a guarantee against kerne
 
 ## Install in another repository
 
-Use one reusable workflow; you do **not** copy the Aegis source into the target repository.
+After stage 2 passes acceptance, use one reusable workflow; you do **not** copy the Aegis source into the target repository. A stage-1 revision still has the old workflow and is not a compatible `workflow_call` installation target.
 
 Create `.github/workflows/aegis.yml`:
 

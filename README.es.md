@@ -6,7 +6,11 @@ Un agente de revisión de código centrado en Go que funciona dentro de los PR d
 
 > **Candidato de lanzamiento v1 en desarrollo.** Se han implementado workflows reutilizables, proveedores opcionales, análisis aislado y evaluación sobre código real. Esto no significa que exista una etiqueta publicada, una evaluación de calidad con API real o un sitio de informes desplegado. [Validación y límites](docs/validation.md).
 
+> **Migración en dos etapas:** mientras exista `examples/aegis-review-v1-migration.yml`, esta revisión está en la etapa 1 y conserva el workflow de PR antiguo. El workflow reutilizable de cuatro jobs con aislamiento descrito abajo **todavía no está activo**. La etapa 2 requiere integrar primero la implementación en el `master` confiable, eliminar ese archivo y activar v1 en el workflow real. El PR #12 mostró fallos de migración y CI; las correcciones aún requieren validación en GitHub. Sigue el [orden de migración](docs/github-action.md), sin confiar automáticamente en el Head objetivo. Activar la configuración no demuestra que el despliegue haya pasado las pruebas.
+
 ## Funcionamiento y arquitectura
+
+Lo siguiente describe v1 después de activar y validar su workflow.
 
 ```text
 PR creado / actualizado → revisor confiable y Base/Head exactos
@@ -25,7 +29,7 @@ En la autorrevisión se compila el revisor desde el Base confiable; en otros rep
 
 ## Instalación en otro repositorio
 
-Añade `.github/workflows/aegis.yml`; no copies el código fuente de Aegis al repositorio consumidor.
+Después de validar la etapa 2, añade `.github/workflows/aegis.yml`; no copies el código fuente de Aegis al repositorio consumidor. El workflow antiguo de la etapa 1 no admite esta instalación mediante `workflow_call`.
 
 ```yaml
 name: Aegis review

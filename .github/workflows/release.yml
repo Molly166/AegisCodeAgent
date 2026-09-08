@@ -58,4 +58,4 @@ jobs:
           retention-days: 30
       - name: Explain release status
         run: |
-          printf 'Release candidates for `%s` were built and checked. Download the artifact, verify checksums, and attach these files to a GitHub release after approval. No release or tag was created.\n' "$AEGIS_RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"
+          printf 'Release candidates for \140%s\140 were built and checked. Download the artifact, verify checksums, and attach these files to a GitHub release after approval. No release or tag was created.\n' "$AEGIS_RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

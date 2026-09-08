@@ -12,6 +12,11 @@ const { validatePublication, host } = require('./host-report.cjs');
 const { checkOfflineEval } = require('./check-offline-eval.cjs');
 const base = 'a'.repeat(40);
 const head = 'b'.repeat(40);
+// Bootstrap validates the staged v1 workflow while the trusted legacy entry
+// point stays unchanged. After activation, test the live workflow instead.
+const pendingWorkflow = path.join(__dirname, '../examples/aegis-review-v1-migration.yml');
+const workflowPath = fs.existsSync(pendingWorkflow) ? pendingWorkflow :
+  path.join(__dirname, '../.github/workflows/aegis-review.yml');
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-delivery-'));
@@ -40,6 +45,8 @@ test('missing evidence produces blocking feedback rather than a clean review', t
     GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: stepSummary }), 1);
   assert.match(fs.readFileSync(output, 'utf8'), /exit-code=1/);
   assert.match(fs.readFileSync(stepSummary, 'utf8'), /Review incomplete — merge gate blocked/);
+  assert.match(fs.readFileSync(path.join(dir, 'artifacts/review.html'), 'utf8'), /Review incomplete — merge gate blocked/);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'artifacts/publication.json'))).report_valid, false);
 });
 
 test('optional degraded review exit does not replace publisher policy', t => {
@@ -88,6 +95,23 @@ function commentFixture(t, { stale = false, changesDuringPagination = false, com
     AEGIS_ARTIFACT_URL: 'https://github.com/owner/target/actions/runs/1/artifacts/2',
     AEGIS_RUN_URL: 'https://github.com/owner/target/actions/runs/1' } };
 }
+
+test('execution failure overrides clean findings in both HTML and summary', t => {
+  const dir = fixture(t);
+  fs.mkdirSync(path.join(dir, 'bin'));
+  fs.mkdirSync(path.join(dir, 'evidence'));
+  fs.writeFileSync(path.join(dir, 'evidence/review.json'), JSON.stringify({ comparison: {
+    base_commit: base, head_commit: head,
+  } }));
+  fs.writeFileSync(path.join(dir, 'bin/aegis'), '#!/usr/bin/env node\nconst fs=require("node:fs"),args=process.argv;fs.writeFileSync(args[args.indexOf("--summary")+1],"No P0/P1 findings");fs.writeFileSync(args[args.indexOf("--html-output")+1],"<!doctype html><html><body><h1>No P0/P1 findings</h1></body></html>");\n', { mode: 0o700 });
+  assert.equal(publish({ GITHUB_WORKSPACE: dir, AEGIS_BASE: base, AEGIS_HEAD: head,
+    AEGIS_ANALYSIS_RESULT: 'failure', AEGIS_ANALYSIS_EXIT: '0' }), 1);
+  const summary = fs.readFileSync(path.join(dir, 'artifacts/review-summary.md'), 'utf8');
+  const html = fs.readFileSync(path.join(dir, 'artifacts/review.html'), 'utf8');
+  assert.match(summary, /^> ❌ \*\*Review execution incomplete — merge gate blocked/);
+  assert.ok(html.indexOf('Review execution: BLOCKED') < html.indexOf('No P0/P1 findings'));
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'artifacts/publication.json'))).exit_code, 1);
+});
 
 test('stale review cannot overwrite a newer PR comment', async t => {
   for (const mode of [{ stale: true }, { changesDuringPagination: true }]) {
@@ -144,7 +168,7 @@ test('CI review confines credentials and passes untrusted strings only as litera
 });
 
 test('reusable workflow builds Aegis from the called workflow SHA, never caller SHA', async () => {
-  const yaml = fs.readFileSync(path.join(__dirname, '../.github/workflows/aegis-review.yml'), 'utf8');
+  const yaml = fs.readFileSync(workflowPath, 'utf8');
   const block = yaml.match(/          script: \|\n((?:            .*\n|\n)+)/)[1];
   const script = block.split('\n').map(line => line.slice(12)).join('\n');
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
@@ -165,7 +189,7 @@ test('reusable workflow builds Aegis from the called workflow SHA, never caller 
 });
 
 test('workflow does not route a DeepSeek key to another provider or a fork', () => {
-  const yaml = fs.readFileSync(path.join(__dirname, '../.github/workflows/aegis-review.yml'), 'utf8');
+  const yaml = fs.readFileSync(workflowPath, 'utf8');
   const expression = yaml.match(/AEGIS_PROVIDER_API_KEY: \$\{\{ (.+) \}\}/)[1]
     .replaceAll('needs.prepare.outputs.same-repository', 'same')
     .replaceAll('github.actor', 'actor').replaceAll('inputs.provider', 'provider')
@@ -182,7 +206,7 @@ test('workflow does not route a DeepSeek key to another provider or a fork', () 
 });
 
 test('required merge check runs and fails even when preparation was skipped or failed', () => {
-  const yaml = fs.readFileSync(path.join(__dirname, '../.github/workflows/aegis-review.yml'), 'utf8');
+  const yaml = fs.readFileSync(workflowPath, 'utf8');
   const gate = yaml.slice(yaml.indexOf('\n  gate:\n'));
   assert.match(gate, /if: always\(\)/);
   assert.match(gate, /needs: \[prepare, analyze, publish\]/);

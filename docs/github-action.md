@@ -1,12 +1,26 @@
 # 在其他仓库安装 Aegis
 
-Aegis 以 **Reusable GitHub Workflow** 交付。调用方只需一个 YAML 和可选模型 Key；评审器、容器工具链、HTML、评论和合并检查由 Aegis 工作流负责。这里采用多 Job 工作流，目的是让分析阶段与持有评论写权限的发布阶段运行在不同 runner 上。它不是需要自行部署的 Web 服务，也不是 `steps.uses` 形式的 Composite Action。
+> **先确认迁移阶段，再使用本文的接入配置。** `examples/aegis-review-v1-migration.yml` 仍存在时，处于阶段 1：实际 `.github/workflows/aegis-review.yml` 保留升级前 `master` 的旧工作流。新版四 Job、Docker 隔离和可复用入口只是代码与待验收方案，尚未在该版本的 PR 工作流中启用。只有待启用文件已移除、实际工作流已切换为 v1，才属于阶段 2；切换配置本身也不等于线上验收通过。
+
+本文后续架构和安装示例针对**阶段 2 启用并通过验收后的 v1 工作流**。Aegis 以 **Reusable GitHub Workflow** 交付：调用方只需一个 YAML 和可选模型 Key；评审器、容器工具链、HTML、评论和合并检查由 Aegis 工作流负责。多 Job 设计让分析阶段与持有评论写权限的发布阶段运行在不同 runner 上。它不是需要自行部署的 Web 服务，也不是 `steps.uses` 形式的 Composite Action。
 
 目前优先支持 Go 单模块仓库。跨文件语义分析、静态分析器与 Verifier 都以 Go 为主要语言；不要将它理解为所有语言都具有相同检测能力。
 
+## 两阶段升级顺序
+
+2026-09-08 的 [PR #12](https://github.com/Molly166/AegisCodeAgent/pull/12) 同时引入新实现与新工作流，但可信 Base `75fd986` 不包含 `--sandbox` 和新版 Publisher 脚本，导致分析、发布及最终门禁连锁失败。实际模型 Review 步骤没有进入；这不是检测出 P0/P1 的结果。另有独立的 CI lint 与 Docker 集成测试失败，见[验收记录](validation.md)。
+
+为避免通过信任 PR Head 绕过边界，修复采用以下顺序：
+
+1. **阶段 1：`fix/aegis-v1-bootstrap-ci-20260908`。** 保留升级前的实际 Review 工作流，将新版评审器、DockerRunner、发布脚本与 CI 修复先送审；新版工作流暂存于 `examples/aegis-review-v1-migration.yml`，参与契约测试和 lint，但 GitHub 不会从 `examples/` 启动它。完成 CI、代码审核后，由维护者合入 `master`。本阶段仍使用旧单 Job/宿主执行路径，不具备新版独立 Publisher 与 Docker PR 执行边界；也不能把这个阶段的 SHA 用作下面的 `workflow_call` 安装版本。
+2. **阶段 2：`fix/aegis-v1-workflow-activation-20260908`。** 第一阶段合入后，确认 `master` 已包含所需可信能力，再将暂存工作流启用到 `.github/workflows/aegis-review.yml` 并删除暂存文件。确认第二阶段 PR 的 Base 是已升级的 `master`，然后验证四 Job、报告反馈与门禁。不得提前针对旧 Base 启用；仅在同一个 PR 中拆成两个 commit 不能解决此问题。
+3. 两阶段都通过审核和线上验收后，才选择固定完整 SHA 供外部仓库复用。不要通过自动改用目标 Head、忽略检查错误或关闭门禁来完成迁移。
+
+上述两阶段替代 PR #12 的一次性升级路径；**不会自动关闭或合并 PR #12**。原 PR 保留用于故障追踪，是否关闭由维护者决定。分支名描述迁移计划，不代表已推送、已合入或线上检查已通过。
+
 ## 1. 固定一个已审核的 Aegis 版本
 
-先选择已合入、通过 CI 的 Aegis release commit，并复制完整的 40 位 SHA。下面的 `REPLACE_WITH_RELEASE_COMMIT_SHA` 是占位符，必须替换后使用；本文不声称 `v1` 或 `v1.0.0` 已经发布。
+先选择已完成阶段 2、合入且通过 CI 与接入验收的 Aegis release commit，并复制完整的 40 位 SHA。下面的 `REPLACE_WITH_RELEASE_COMMIT_SHA` 是占位符，必须替换后使用；本文不声称 `v1` 或 `v1.0.0` 已经发布。
 
 在你的仓库添加 `.github/workflows/aegis.yml`：
 
@@ -99,7 +113,7 @@ DockerRunner 不是虚拟机级别隔离，应使用 GitHub 托管临时 runner�
 
 Docker 源码挂载额外要求独立、已提交的干净 Git checkout：拒绝本地修改、未跟踪/忽略文件、隐藏修改的索引标记以及已初始化子模块，避免把本地 `.env` 一起挂进容器。`.git` 元数据在容器内被空只读挂载覆盖，且关闭 VCS 构建标记。请使用一次性 clone，不要将带凭据或开发产物的日常工作区作为不可信 PR 的执行目录。
 
-从旧版本升级时，如果可信 Base 尚不具备 DockerRunner 和新 Publisher，首次引入这套工作流的 PR 会 fail closed。维护者需要审核该 bootstrap PR 并按仓库规则完成一次显式迁移；工作流不会编译 PR Head 的 Publisher 来绕开信任边界。
+从旧版本升级时，如果可信 Base 尚不具备 DockerRunner 和新 Publisher，直接启用新版工作流的 PR 会 fail closed。请按本文的两阶段顺序先升级可信实现，再启用新工作流；“失败后直接合入”不是迁移步骤。阶段 2 应在阶段 1 合入后从最新 `master` 新建分支，再将暂存文件移到正式工作流位置；不要提前向旧 Base 创建激活 PR。工作流不会编译 PR Head 的 Publisher 来绕开信任边界。
 
 GitHub 平台依据：[复用工作流](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows)、[Workflow Run API 与 referenced_workflows](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run)、[安全使用 GitHub Actions](https://docs.github.com/en/actions/reference/security/secure-use)。
 

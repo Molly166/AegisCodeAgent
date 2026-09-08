@@ -138,13 +138,17 @@ func (r *DockerRunner) arguments(command Command, name string) ([]string, error)
 	args := []string{"run", "--rm", "--pull=never", "--name", name,
 		"--network=none", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges",
 		"--pids-limit=256", "--memory=2g", "--cpus=2", "--user", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()),
-		"--tmpfs", "/tmp:rw,nosuid,nodev,size=1g", "--workdir", directory,
+		"--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=1g", "--workdir", directory,
+		// Go compiles test executables into GOTMPDIR. Docker tmpfs defaults to
+		// noexec, so allow execution only in this disposable build directory;
+		// keep the general temporary directory and Git metadata non-executable.
+		"--tmpfs", fmt.Sprintf("/aegis-tmp:rw,exec,nosuid,nodev,size=1g,mode=0700,uid=%d,gid=%d", os.Getuid(), os.Getgid()),
 		// Even a clean clone's Git metadata may contain authenticated remote
 		// URLs or extraheaders. Shadow it entirely with an empty read-only mount.
 		"--tmpfs", filepath.Join(r.Repository, ".git") + ":ro,nosuid,nodev,noexec,size=1m",
 		"--mount", "type=bind,src=" + r.Repository + ",dst=" + r.Repository + ",readonly",
 		"--mount", "type=bind,src=" + r.Cache + ",dst=" + r.Cache,
-		"--env", "HOME=/tmp", "--env", "GOCACHE=" + r.Cache,
+		"--env", "HOME=/tmp", "--env", "GOCACHE=" + r.Cache, "--env", "GOTMPDIR=/aegis-tmp",
 		"--env", "GOMODCACHE=/go/pkg/mod", "--env", "GOPATH=/go", "--env", "GOTOOLCHAIN=local",
 		"--env", "GOPROXY=off", "--env", "GOSUMDB=off", "--env", "GOWORK=off",
 		"--env", "GOFLAGS=-mod=readonly -buildvcs=false", "--env", "CGO_ENABLED=0"}

@@ -6,7 +6,11 @@ GitHub の PR 上で動作する、Go 向けコードレビュー Agent です�
 
 > **v1 リリース候補の開発版。** 再利用可能な Workflow、複数 Provider、隔離実行、実コード評価を実装しています。リリースタグの公開、実 API の品質評価、レポートサイトのデプロイが完了したという意味ではありません。[検証状況](docs/validation.md)。
 
+> **二段階の移行中です。** `examples/aegis-review-v1-migration.yml` が存在する間は段階 1 で、実際の PR Workflow は旧版のままです。以下の四 Job・Docker 隔離・再利用 Workflow は**まだ有効ではありません**。実装を信頼できる `master` にマージした後、一時ファイルを削除して実際の Workflow を v1 に切り替えると段階 2 になります。PR #12 で移行と CI の失敗が確認され、修正後のオンライン検証は未完了です。[移行順序](docs/github-action.md)を守り、対象 Head を自動的に信頼して回避しないでください。設定変更だけでは検証完了になりません。
+
 ## 動作とアーキテクチャ
+
+以下は v1 Workflow の有効化と検証が完了した後の構成です。
 
 ```text
 PR 作成 / 更新 → 信頼できるレビュー実装と正確な Base/Head を解決
@@ -25,7 +29,7 @@ PR 作成 / 更新 → 信頼できるレビュー実装と正確な Base/Head �
 
 ## 他のリポジトリへの導入
 
-`.github/workflows/aegis.yml` を追加します。Aegis のソースをコピーする必要はありません。
+段階 2 の検証後に `.github/workflows/aegis.yml` を追加します。Aegis のソースをコピーする必要はありません。段階 1 の旧 Workflow はこの `workflow_call` 導入には対応していません。
 
 ```yaml
 name: Aegis review

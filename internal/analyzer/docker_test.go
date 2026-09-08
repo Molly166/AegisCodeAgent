@@ -1,6 +1,8 @@
 package analyzer
 
 import (
+	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,5 +36,49 @@ func TestDockerRunnerBoundary(t *testing.T) {
 	r.Cache = cache + ":injected"
 	if _, err := r.arguments(Command{Name: "go", Directory: repository}, "aegis-test"); err == nil {
 		t.Fatal("colon in tmpfs/bind mount path was accepted")
+	}
+}
+
+func TestDockerRunnerTemporaryExecutionBoundary(t *testing.T) {
+	repository := t.TempDir()
+	repository, err := filepath.EvalSymlinks(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := &DockerRunner{Repository: repository, Cache: t.TempDir(), Image: "aegis-analysis:local"}
+	args, err := r.arguments(Command{Name: "go", Arguments: []string{"test", "./..."}, Directory: repository}, "aegis-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmpfs := make(map[string]string)
+	var goTempDirs []string
+	for i := 0; i+1 < len(args); i++ {
+		switch args[i] {
+		case "--tmpfs":
+			path, options, ok := strings.Cut(args[i+1], ":")
+			if !ok || tmpfs[path] != "" {
+				t.Fatalf("invalid or duplicate tmpfs mount: %q", args[i+1])
+			}
+			tmpfs[path] = options
+		case "--env":
+			if strings.HasPrefix(args[i+1], "GOTMPDIR=") {
+				goTempDirs = append(goTempDirs, args[i+1])
+			}
+		}
+	}
+	if len(tmpfs) != 3 {
+		t.Fatalf("unexpected temporary mounts: %v", tmpfs)
+	}
+	for path, want := range map[string]string{
+		"/tmp":                            "rw,noexec,nosuid,nodev,size=1g",
+		"/aegis-tmp":                      fmt.Sprintf("rw,exec,nosuid,nodev,size=1g,mode=0700,uid=%d,gid=%d", os.Getuid(), os.Getgid()),
+		filepath.Join(repository, ".git"): "ro,nosuid,nodev,noexec,size=1m",
+	} {
+		if got := tmpfs[path]; got != want {
+			t.Errorf("tmpfs %s: got %q, want %q", path, got, want)
+		}
+	}
+	if len(goTempDirs) != 1 || goTempDirs[0] != "GOTMPDIR=/aegis-tmp" {
+		t.Errorf("Go test executables must use the dedicated temporary mount: %v", goTempDirs)
 	}
 }

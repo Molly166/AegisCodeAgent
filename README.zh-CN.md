@@ -6,9 +6,11 @@
 
 > **当前为 v1 发布候选开发版。** 已实现可复用 Workflow、多 Provider、隔离分析和真实代码评测；不代表已发布版本标签、完成在线模型验收或部署报告网站。[已验证范围与限制](docs/validation.md)。
 
+> **两阶段迁移提示：** 仓库存在 `examples/aegis-review-v1-migration.yml` 时属于阶段 1，实际 PR 工作流保留旧版本，下文的四 Job 沙箱/可复用工作流**尚未启用**。先将实现合入可信 `master`，再删除暂存文件并将实际 `.github/workflows/aegis-review.yml` 切换为 v1，才进入阶段 2。PR #12 已暴露升级及 CI 失败，本轮修复仍待线上验收；配置切换也不等于上线通过。请按[两阶段顺序](docs/github-action.md)执行，不得默认信任目标 Head 来绕过。
+
 ## 新人先看：它如何工作？
 
-你向分支提交代码并创建/更新 PR，GitHub Actions 自动启动 Aegis，审核精确的 PR Head。完成后，在 PR 中更新同一条 Bot 评论，给出结论、问题位置和完整报告链接，并通过独立的 **Aegis merge gate** Check 返回门禁结果。
+以下是 v1 工作流完成启用与验收后的行为：你向分支提交代码并创建/更新 PR，GitHub Actions 自动启动 Aegis，审核精确的 PR Head。完成后，在 PR 中更新同一条 Bot 评论，给出结论、问题位置和完整报告链接，并通过独立的 **Aegis merge gate** Check 返回门禁结果。
 
 - **先看结论和 Findings：** 统一 P0–P3，展示代码位置、证据和建议。
 - **不把不确定当作没问题：** 未确认假设进入 `Needs Review`；执行不完整、覆盖降级单独展示。
@@ -61,7 +63,7 @@ Aegis 自身评审从可信 PR Base 编译评审器；其他仓库调用时，�
 
 ## 其他仓库如何开箱使用？
 
-只需添加一份 Workflow，无需复制 Aegis 源码或自行维护服务。在目标仓库创建 `.github/workflows/aegis.yml`：
+阶段 2 完成验收后，只需添加一份 Workflow，无需复制 Aegis 源码或自行维护服务。阶段 1 的旧实际工作流不支持此 `workflow_call` 接入，不可用该阶段的 SHA 替换占位符。在目标仓库创建 `.github/workflows/aegis.yml`：
 
 ```yaml
 name: Aegis review

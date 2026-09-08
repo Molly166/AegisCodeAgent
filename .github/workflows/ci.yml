@@ -25,7 +25,7 @@ jobs:
           cache: false
 
       - name: Validate workflow syntax and shell commands
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        run: bash scripts/check-workflows.sh
 
       - name: Test evidence publishing and PR feedback boundaries
         run: node --test scripts/*.test.cjs
