@@ -1,269 +1,88 @@
 # AegisCodeAgent
 
-[![CI](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml)
-[![Aegis Code Review](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml)
-![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
-AegisCodeAgent は、GitHub の Pull Request 上で自動実行される Go ネイティブのコードレビュー Agent です。決定論的解析、リポジトリレベルのコンテキスト、LLM による推論、独立した検証を組み合わせ、根拠のある指摘だけを最終レビューに反映します。
+GitHub の PR 上で動作する、Go 向けコードレビュー Agent です。静的解析、リポジトリのコンテキスト、モデル推論、独立した証拠検証を組み合わせ、P0–P3 の指摘と HTML レポートを返します。常駐サーバーは不要です。
 
-> **現在のマイルストーン：v0.7。** 50 Case の Golden Regression Corpus、Replay Eval Harness、セマンティック検証、明示的な Needs Review Gate、PR の変更意図コンテキスト、4 種類の Analyzer を実行する GitHub Pipeline を実装しました。Go を主な対象とし、最初の推論 Provider として DeepSeek を採用しています。
+> **v1 リリース候補の開発版。** 再利用可能な Workflow、複数 Provider、隔離実行、実コード評価を実装しています。リリースタグの公開、実 API の品質評価、レポートサイトのデプロイが完了したという意味ではありません。[検証状況](docs/validation.md)。
 
-## Pull Request を作成すると何が起きますか？
-
-サーバーを起動したり、ローカルプロセスを常時実行したりする必要はありません。GitHub Actions が Aegis を起動し、PR の正確な Head Commit と Base を比較してレビューし、その結果を Pull Request に公開します。
+## 動作とアーキテクチャ
 
 ```text
-Pull Request の作成または更新
-          │
-          ▼
-   信頼済み Workflow による制御
-          │
-          ▼
- Git Diff と変更行スコープ
-          │
-          ├──────────────► 決定論的 Go Analyzer
-          │                 go test · go vet · staticcheck · gosec
-          │
-          └──────────────► リポジトリコンテキストエンジン
-                            PR 意図 · Repository Rule · AST · 型 · 呼び出し元 · テスト
-                                      │
-                                      ▼
-                            DeepSeek Reasoning Agent
-                                      │
-                                      ▼
-                               エビデンス Verifier
-                                      │
-                                      ▼
-                 P0-P3 Annotation · Job Summary · HTML レポート
+PR 作成 / 更新 → 信頼できるレビュー実装と正確な Base/Head を解決
+    → Diff → 並列静的解析 → AST・型・呼び出し・テスト・PR 意図
+    → Reasoning Agent + 制限付き読み取り専用ツール
+    → Verifier: Verified / Needs Review / Rejected
+    → 独立 Publisher: HTML・行アノテーション・同一 Bot コメント更新
+    → Aegis merge gate
 ```
 
-モデルがマージ可否を直接決定することはありません。Candidate は位置、Diff、ソーススナップショット、対象を絞った診断、またはセマンティックな根拠を通過した場合のみ最終 Finding に昇格します。無効な仮説は Rejected、検証も否定もできない仮説は明示的な `Needs Review` となり、P0 はデフォルトで Merge を Block します。
+静的解析は `go test`、`go vet`、`staticcheck`、`gosec` を使用します。モデルの仮説は、そのまま最終指摘になりません。位置、変更行、ソーススナップショット、独立診断や限定的な意味規則で検証します。確認できない問題は `Needs Review` として残り、「問題なし」とは表示しません。
 
-## アーキテクチャ
+既定では証拠のある P0/P1 と未確認 P0 がブロック対象です。P2/P3 自体はブロックしません。モデルやコンテキストの任意段階の縮退と、必須証拠の不足を区別します。`require-agent: true` でモデル完了を必須にできます。
 
-システムは、入出力が明確なステージに分割されています。
+自分自身の PR は信頼できる Base からレビュー実装をビルドし、他リポジトリからの利用では呼び出された Aegis Workflow の解決済み SHA を使用します。対象 Head からビルドしません。対象 Go コードを実行する子プロセスは無ネットワーク・読み取り専用ソースの Docker 内で動作し、モデルキーは渡しません。Publisher は別 runner で JSON を検証して HTML とポリシーを再生成します。[安全境界](SECURITY.md)。
 
-| ステージ | 責務 | 出力 | 実装 |
-| --- | --- | --- | --- |
-| GitHub オーケストレーション | PR イベントへの応答、信頼済み Base と正確な Head の Checkout、古い Run のキャンセル | 再現可能なレビュー用 Worktree | `.github/workflows/aegis-review.yml` |
-| Diff エンジン | Revision の安全な解決、Three-dot Diff、Rename、Binary、Hunk、変更行の解析 | 正規化済み Change Set | `internal/gitdiff/` |
-| 静的解析 | Analyzer の並行実行と Timeout、診断の正規化と重複排除 | 根拠付き Findings | `internal/analyzer/` |
-| コンテキストエンジン | PR の Title/Body/Label/Issue と Repository Guidance を Go の宣言・型関係に統合 | Repository Context Bundle | `internal/context/` |
-| Reasoning Agent | DeepSeek が読み取り専用 Tool で制限された根拠を確認し、構造化された候補を提案 | 未検証 Candidates | `internal/agent/` |
-| Verifier V2 | Candidate の識別子と位置を検証し、Focused Check とソース認識型 Semantic Rule を実行 | Verified／Needs Review／Rejected の判定 | `internal/verifier/` |
-| Publisher | Severity を P0-P3 に変換し、マージ閾値を適用して GitHub 出力と完全なレポートを生成 | Summary、Annotation、HTML/JSON | `internal/githubreport/`、`internal/report/` |
-| Eval Harness | Provenance と分布 Contract を持つ 50 件の Bug/Clean/Needs Review/Resilience Report を Replay | Precision、Recall、F1、P0-P3 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/catalog.json`、`eval/cases/` |
-| Credential 境界 | リポジトリ側が制御する子プロセスから Credential 形式の環境変数を除去 | Sanitized child environment | `internal/secureenv/` |
+## 他のリポジトリへの導入
 
-### Finding のライフサイクル
+`.github/workflows/aegis.yml` を追加します。Aegis のソースをコピーする必要はありません。
 
-```text
-決定論的な診断 ──────────────────────────────────────► 最終 Finding
-
-モデルの Candidate
-      │
-      ▼
-Schema + リポジトリ境界 + 変更行の検証
-      │
-      ▼
-Focused Analyzer + Semantic Evidence の照合
-      │
-      ├── Verified ───────────────────────────────────► 最終 Finding
-      ├── Rejected ───────────────────────────────────► 監査記録のみ
-      └── Needs Review ───────────────────────────────► 人手レビューに表示し、P0 は既定で Block
+```yaml
+name: Aegis review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    uses: Molly166/AegisCodeAgent/.github/workflows/aegis-review.yml@REPLACE_WITH_RELEASE_COMMIT_SHA
+    with:
+      provider: deepseek
+      model: deepseek-v4-flash
+      fail-on: p1
+      fail-on-needs-review: p0
+    secrets:
+      provider-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
 ```
 
-最終レポートには、CLI、GitHub Publisher、HTML Renderer、JSON 自動化インターフェースで共有される安定した `ReviewReport` ドメインモデルを使用します。これにより、レビューのロジックと表示形式を分離しています。
+SHA のプレースホルダーを、この Workflow を含む**監査・公開済みコミットの完全 SHA**に置き換えてください。`v1` タグが既にあるとは仮定しません。Key は GitHub Actions Secrets に登録します。
 
-## クイックスタート：GitHub 自動レビュー
+OrcaRouter は `provider: orcarouter` と専用 `ORCAROUTER_API_KEY` を使用します。モデル ID は利用前に確認してください。API を利用しない場合は `provider: none` とし secrets を省略します。汎用 OpenAI-compatible API の HTTPS endpoint とモデル能力は明示的に設定します。[Provider 設定](docs/providers.md)。
 
-このリポジトリまたは自身の Fork で Aegis を利用する場合の推奨方法です。
+Fork/Dependabot PR にモデルキーは渡りません。コメント権限がなくても Check と Artifact にレポートが残ります。Ruleset で実際に表示される **Aegis merge gate** を必須チェックに設定しなければ、GitHub のマージ制限にはなりません。最初の旧 Base からの移行は fail closed となることがあり、メンテナーの明示的な移行レビューが必要です。[詳細な導入手順](docs/github-action.md)。
 
-### 1. リポジトリを準備する
+## ローカル実行と評価
 
-必要に応じてリポジトリを Fork し、Clone します。
+Go 1.24+ と Git が必要です。v1 は `os.Root` を使用してファイル読み取りをリポジトリ内に制限します。レビュー実装と解析側の Go ツールチェーンを揃えてください。ローカルの既定 `--sandbox host` は信頼できるコード専用です。
 
-```bash
-git clone https://github.com/<YOUR_GITHUB_NAME>/AegisCodeAgent.git
-cd AegisCodeAgent
+```sh
 go test ./...
+go build -trimpath -o /tmp/aegis ./cmd/aegis
+/tmp/aegis review --repo . --base origin/master --head HEAD \
+  --agent-provider none --analyzers default --output /tmp/aegis-review.html
+/tmp/aegis eval --corpus eval/cases --output /tmp/aegis-golden.html
+/tmp/aegis eval-live --corpus eval/live --agent-provider none \
+  --analyzers default --output /tmp/aegis-live.html
 ```
 
-**Settings → Actions → General** で GitHub Actions が有効になっていることを確認してください。
+`default` は go test/go vet、`all` は追加の staticcheck/gosec も要求します。CI イメージには全解析器が含まれます。作業ツリーは対象 Head と一致するクリーンな状態にしてください。設定は `--config` で明示的に読み込み、キーを JSON に保存しないでください。
 
-### 2. レビューモードを選択する
+評価は二種類あります。
 
-決定論的モードでは Secret は不要です。
+- **50 Golden 回放ケース:** 既存レポートの照合・門禁回帰。ライブモデルの精度ではありません。
+- **12 実コードケース:** 8 Bug、4 Clean の Git fixture で実際のバイナリを実行。漏検、誤ブロック、不完全、遅延、使用量と出所を保存します。
 
-```text
-go test + go vet + staticcheck + gosec + semantic verifier + GitHub report
-```
+少数の合成例や語句ベースの照合は本番品質の証明ではありません。実 API 比較は明示的なモデル指定、同じ条件と複数回実行で行い、費用が発生します。Verifier の消融比較を含め、[評価ガイド](eval/README.md)を参照してください。
 
-推論と検証を含む完全なフローを有効にするには、**Settings → Secrets and variables → Actions** で Repository Secret を作成します。
+## 制限と関連資料
 
-```text
-Name:  DEEPSEEK_API_KEY
-Value: <your DeepSeek API key>
-```
+現在は Go 単一モジュールを中心とし、全言語の同等解析、汎用意味証明、自動修正、私有依存の供給を保証しません。Docker は VM 相当の完全隔離ではありません。
 
-Fork および Dependabot の Pull Request にはこの Secret は渡されず、自動的に決定論的モードが使用されます。
+- [公開 HTTPS レポート](docs/report-hosting.md): 既定は Artifact。Pages 公開は別途手動承認し、機密コードを公開しないでください。
+- [リリース候補のビルド](docs/github-action.md): 六つの OS/アーキテクチャ、SHA256。ビルドだけではタグや Release を公開しません。
+- [貢献](CONTRIBUTING.md)・[セキュリティ](SECURITY.md)・[検証記録](docs/validation.md)
 
-### 3. 通常の Feature Branch を Push する
-
-```bash
-git switch master
-git pull --ff-only origin master
-git switch -c feature/my-change
-
-# コードまたはドキュメントを編集します。
-git add .
-git commit -m "feat: describe the change"
-git push -u origin feature/my-change
-```
-
-`feature/my-change` から `master` への Pull Request を作成します。`opened` イベントで Aegis が起動し、その後の Push ごとに `synchronize` イベントが発生して新しいレビューが始まり、古い Run はキャンセルされます。
-
-ドキュメントのみを変更する Pull Request でも Workflow は起動し、Summary とレポート Artifact が生成されます。サポート対象のソース根拠がない場合は不要なモデル推論を省略できますが、決定論的解析、Report、Merge Gate の意味は常に監査可能です。
-
-### 4. 結果を確認する
-
-Pull Request を開き、次の項目を確認します。
-
-1. **Conversation**：Aegis が継続的に更新するレビューコメントと、完全な HTML レポートへのリンク。
-2. **Checks → Aegis Code Review**：実行状態と Job Summary。
-3. **Annotations**：変更ファイルと行に紐づく指摘。
-4. **Artifacts → aegis-review-report**：`review.html` と `review.json`。
-5. 最終 Check の結果：マージ可能かどうか。
-
-| Priority | 意味 | GitHub Annotation | デフォルトでブロック |
-| --- | --- | --- | :---: |
-| P0 | Critical | Error | はい |
-| P1 | High | Error | はい |
-| P2 | Medium | Warning | いいえ |
-| P3 | Low / Info | Notice | いいえ |
-
-Reasoning Agent またはリポジトリ Context の劣化は Review Coverage の低下として表示され、それ自体が P0/P1 になることはありません。決定論的な静的解析または Verifier が未完了の場合は引き続き fail-closed とし、未解決の P0 仮説は独立した Needs Review Threshold で制御します。
-
-結果を強制するには、`master` の Branch Ruleset で `Aegis Code Review` を Required Status Check に設定してください。Web およびメール通知は GitHub の通知設定が担当し、Aegis 自体は別のメールサービスを実行しません。
-
-> Aegis は現在、GitHub Marketplace Action ではなく Repository-native Workflow です。このリポジトリとその Fork ではすぐに利用できます。無関係な別リポジトリへ導入するには、現時点では Aegis のソースと Workflow の両方を取り込む必要があります。再利用可能な Action としての Package 化は今後の課題です。
-
-## クイックスタート：ローカル CLI
-
-必要な環境：Go 1.23 以降、Git。
-
-### API Key を使わない決定論的レビュー
-
-```bash
-go build -o aegis ./cmd/aegis
-
-./aegis review \
-  --repo . \
-  --base master \
-  --head HEAD \
-  --output review.html
-```
-
-ブラウザで `review.html` を開きます。Analyzer は実際のファイルシステムを読み取るため、Checkout 済みの Worktree はクリーンで、`HEAD` と一致している必要があります。
-
-### DeepSeek + Verifier による完全レビュー
-
-```bash
-cp .aegis.example.json .aegis.json
-cp .env.example .env
-
-# 実際の Key は Git に無視される .env ファイルだけに記述します。
-./aegis review \
-  --config .aegis.json \
-  --repo . \
-  --base master \
-  --head HEAD \
-  --output review.html
-```
-
-`.aegis.json` には、機密情報を含まない Provider 設定、予算、Timeout を保存します。API Key は `DEEPSEEK_API_KEY` または Git に無視される `.env` からのみ読み取ります。Custom Endpoint を明示的に許可しない限り、DeepSeek の公式 Endpoint だけが使用できます。
-
-便利なコマンド：
-
-```bash
-# 機械可読レポート
-./aegis review --repo . --base master --head HEAD --format json --output review.json
-
-# staticcheck と gosec がインストール済みの場合、すべての Adapter を実行
-./aegis review --repo . --base master --head HEAD --analyzers all --output review.html
-
-# 組み込み回帰 Corpus を Replay して自己完結型 Dashboard を生成
-./aegis eval --corpus ./eval/cases --format html --output eval-report.html
-
-# 利用可能なすべての Option を確認
-./aegis review --help
-./aegis github --help
-./aegis eval --help
-```
-
-## セキュリティモデル
-
-- Review Binary は信頼済みの PR Base Commit から Build し、正確な Head Commit は解析対象として別の Directory に Checkout します。
-- Workflow の Repository Permission は読み取り専用で、Checkout Credential の永続化を無効にしています。
-- Fork および Dependabot の PR には、`DEEPSEEK_API_KEY` も書き込み可能な Token も渡されません。
-- Git、Test、Vet、Staticcheck、Gosec の子プロセスから Credential 形式の環境変数を除去します。
-- Model Tool は読み取り専用で、Repository Path、行数、出力量に上限があります。
-- GitHub は同一リポジトリの Branch を Secret にアクセス可能な信頼済みソースとして扱います。書き込み権限を制限し、`.github/workflows/` 配下の変更には必ずレビューを要求してください。
-
-## 開発ガイド
-
-Package の境界：
-
-```text
-cmd/aegis/             CLI orchestration and user-facing errors
-internal/gitdiff/      revision resolution and unified-diff parsing
-internal/analyzer/     analyzer adapters, scheduling, normalization
-internal/context/      AST/type index, relationships, ranking, budgets
-internal/config/       strict JSON config and narrow dotenv loading
-internal/agent/        provider protocol, prompt, tools, reasoning loop
-internal/verifier/     candidate validation and evidence adjudication
-internal/eval/         replay corpus, expectation matching, quality dashboard
-internal/githubreport/ P0-P3 mapping, Summary, annotations, merge gate
-internal/secureenv/    child-process credential isolation
-internal/review/       shared domain model
-internal/report/       self-contained HTML, JSON, and Markdown renderers
-```
-
-Pull Request を作成する前に、Quality Gate を実行してください。
-
-```bash
-go fmt ./...
-go vet ./...
-go test -race ./...
-go build ./cmd/aegis
-```
-
-新しい Finding Source には、実在する Location、Severity、Category、Source、Confidence、再現可能な Evidence が必要です。新しい Agent Candidate は、検証が完了するまで最終 Findings と分離しなければなりません。
-
-## 現在のスコープとロードマップ
-
-実装済み：
-
-- 決定論的 Go Analyzer Pipeline。
-- リポジトリコンテキストエンジン。
-- 境界を設けた DeepSeek Reasoning Loop。
-- Semantic Evidence と Needs Review を備えた Verifier V2。
-- Replay Eval Harness と再生成可能な 50 Case Golden Regression Corpus。
-- PR の変更意図と Repository Guidance の Context。
-- go test、go vet、staticcheck、gosec をすべて実行する Workflow。
-- 自己完結型 HTML エビデンスレポート。
-- GitHub Actions の Trigger、Annotation、Artifact、Merge Gate。
-
-今後：
-
-- Golden Replay 指標とは分離して、独立 Label の Live Pipeline 評価、反復 Trial、分散、信頼区間を追加。
-- Live Model 比較、反復 Trial、Confidence Interval の追加。
-- 再利用可能な GitHub Action の Package 化と Release 配布。
-- 追加の Model Provider と本番向け Observability。
-
-## ライセンス
-
-[MIT](LICENSE)
+[MIT License](LICENSE)。

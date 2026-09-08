@@ -31,10 +31,10 @@ func (a StaticcheckAnalyzer) Analyze(ctx context.Context, input Input) ([]review
 	arguments := []string{"-f", "json"}
 	arguments = append(arguments, input.Packages...)
 	execution, err := a.runner.Run(ctx, Command{Name: NameStaticcheck, Arguments: arguments, Directory: input.Repository})
-	if err != nil {
-		return nil, err
-	}
 	findings := parseStaticcheckDiagnostics(input.Repository, execution)
+	if err = executionError(execution, err); err != nil {
+		return findings, err
+	}
 	if execution.ExitCode != 0 && len(findings) == 0 {
 		return nil, commandFailure(NameStaticcheck, execution)
 	}

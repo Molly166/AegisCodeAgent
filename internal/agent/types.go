@@ -9,9 +9,11 @@ import (
 )
 
 const (
-	ProviderNone     = "none"
-	ProviderDeepSeek = "deepseek"
-	DefaultModel     = "deepseek-v4-flash"
+	ProviderNone             = "none"
+	ProviderDeepSeek         = "deepseek"
+	ProviderOrcaRouter       = "orcarouter"
+	ProviderOpenAICompatible = "openai-compatible"
+	DefaultModel             = "deepseek-v4-flash"
 )
 
 type Config struct {
@@ -52,6 +54,7 @@ type CompletionResponse struct {
 	Message      Message
 	FinishReason string
 	Usage        review.AgentUsage
+	Metadata     review.CompletionMetadata
 }
 
 type Message struct {

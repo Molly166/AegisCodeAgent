@@ -51,7 +51,8 @@ var htmlReportTemplate = template.Must(template.New("review-report").Funcs(templ
 	"verificationLabel": verificationStatusLabel,
 	"verdictLabel":      candidateVerdictLabel,
 	"priorityLabel":     func(value githubreport.Priority) string { return strings.ToUpper(string(value)) },
-	"reportCSS":         func() template.CSS { return template.CSS(htmlReportV2CSS) },
+	// #nosec G203 -- compiled-in CSS only; no PR, model or configuration data enters this value.
+	"reportCSS": func() template.CSS { return template.CSS(htmlReportV2CSS) },
 	"needsReviewCount": func(run review.VerificationRun) int {
 		return run.Summary.NeedsReview + run.Summary.Inconclusive
 	},
@@ -77,6 +78,7 @@ func RenderHTML(reviewReport review.ReviewReport) ([]byte, error) {
 }
 
 func RenderHTMLWithOptions(reviewReport review.ReviewReport, options githubreport.Options) ([]byte, error) {
+	reviewReport = githubreport.WithUnverifiedCandidates(reviewReport)
 	if options.FailOn == "" {
 		options.FailOn = githubreport.PriorityP1
 	}
@@ -103,16 +105,16 @@ func htmlVerdictFor(report review.ReviewReport, gate githubreport.GateResult, op
 	if len(report.Findings) == 1 {
 		findings = "1 finding"
 	}
-	if report.Analysis.Status == review.AnalysisScopeOnly {
+	if report.Analysis.Status == review.AnalysisScopeOnly && !gate.Blocked && !gate.NeedsReview && len(report.Findings) == 0 {
 		return htmlVerdict{
 			Class: "pending", Title: "Review pending", Label: "Pending", Count: "Scope mapped", Caption: "Analysis pending",
-			Summary:         "The comparison scope is available, but deterministic analysis and evidence verification have not run.",
+			Summary:         "The comparison scope is available, but deterministic analysis has not run.",
 			DecisionTitle:   "Merge decision pending analysis.",
 			DecisionMessage: "Run the configured analyzers and requested review stages before interpreting this report as a safety verdict.",
 		}
 	}
 	switch {
-	case gate.Incomplete && options.FailOnIncomplete:
+	case gate.Incomplete && (options.FailOnIncomplete || gate.BlockedByRequiredAgent):
 		return htmlVerdict{
 			Class: "incomplete", Title: "Review incomplete", Label: "Blocked", Count: "merge gate blocked", Caption: "Rerun required",
 			Summary:         "The merge gate is blocked because one or more required review stages did not complete.",
@@ -254,7 +256,7 @@ func riskLabel(report review.ReviewReport) string {
 func analysisLabel(analysis review.Analysis) string {
 	switch analysis.Status {
 	case review.AnalysisScopeOnly:
-		return "diff mapped · analysis pending"
+		return "Scope mapped · analysis pending"
 	case review.AnalysisFailed:
 		return "review incomplete"
 	case review.AnalysisPartial:
@@ -371,6 +373,8 @@ const htmlTemplateSource = `<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'">
+  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light">
   <title>Aegis review · {{.Comparison.Base}} → {{.Comparison.Head}}</title>
@@ -1062,6 +1066,23 @@ const htmlTemplateSource = `<!doctype html>
       </div>
       <p class="unverified-notice"><strong>Verification boundary:</strong> model candidates are hypotheses and do not affect the verdict above until a deterministic verifier accepts them.</p>
       {{if .Agent.Summary}}<p class="agent-summary">{{.Agent.Summary}}</p>{{end}}
+      {{if .Agent.Completions}}
+      <details class="context-fold">
+        <summary><span><b>{{len .Agent.Completions}} model requests</b><small>Requested and provider-reported model identities; latency includes retries</small></span><em>Inspect request trace</em></summary>
+        <div class="context-body">
+        {{range .Agent.Completions}}
+          <article class="symbol-card">
+            <h3>Turn {{.Step}} · {{.Provider}}</h3>
+            <p>Requested: <code>{{.RequestedModel}}</code><br>Reported model: <code>{{if .ResolvedModel}}{{.ResolvedModel}}{{else}}Unknown{{end}}</code></p>
+            <p>Request ID: <code>{{if .RequestID}}{{.RequestID}}{{else}}Not provided{{end}}</code><br>{{.Attempts}} attempt(s) · {{duration .DurationMillis}} · HTTP {{.HTTPStatus}}</p>
+            {{if .FallbackModel}}<p>Fallback: <code>{{.FallbackModel}}</code> · level {{.FallbackLevel}}</p>{{end}}
+            {{if .ErrorKind}}<p>Request failed: {{.ErrorKind}}</p>{{end}}
+          </article>
+        {{end}}
+        <p>Model names are reported by the gateway. They do not independently attest which upstream infrastructure processed the code.</p>
+        </div>
+      </details>
+      {{end}}
       {{if .Agent.ToolCalls}}
       <details class="section-disclosure audit-disclosure">
         <summary><span><b>{{len .Agent.ToolCalls}} audited tool calls</b><small>Read-only code retrieval performed by the reasoning agent</small></span><em>Inspect agent trace</em></summary>

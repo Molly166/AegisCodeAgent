@@ -1,0 +1,61 @@
+name: Build release artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'An existing reviewed tag, for example v1.0.0. This workflow never creates tags.'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Start only from the protected default branch. The requested tag must be
+    # an ancestor of this exact default-branch commit before any tag code runs.
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      AEGIS_RELEASE_TAG: ${{ inputs.tag }}
+      AEGIS_TRUSTED_SHA: ${{ github.sha }}
+    steps:
+      - name: Validate release tag syntax
+        run: '[[ "$AEGIS_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]'
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the existing tag is contained in reviewed master
+        run: |
+          git rev-parse --verify "refs/tags/$AEGIS_RELEASE_TAG^{commit}"
+          git merge-base --is-ancestor "refs/tags/$AEGIS_RELEASE_TAG^{commit}" "$AEGIS_TRUSTED_SHA"
+          git -c core.hooksPath=/dev/null checkout --detach "refs/tags/$AEGIS_RELEASE_TAG"
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Verify release source
+        run: |
+          go vet ./...
+          go test -race ./...
+          node --test scripts/*.test.cjs
+      - name: Build reproducible release archives and checksums
+        run: bash scripts/build-release.sh "$AEGIS_RELEASE_TAG"
+      - name: Retain release candidates for maintainer approval
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: aegis-${{ inputs.tag }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
+            dist/build-info.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Explain release status
+        run: |
+          printf 'Release candidates for `%s` were built and checked. Download the artifact, verify checksums, and attach these files to a GitHub release after approval. No release or tag was created.\n' "$AEGIS_RELEASE_TAG" >> "$GITHUB_STEP_SUMMARY"

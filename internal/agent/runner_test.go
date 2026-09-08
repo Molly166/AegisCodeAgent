@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -83,6 +86,72 @@ func TestRunnerExecutesToolLoopAndProducesUnverifiedCandidate(t *testing.T) {
 	assistant := provider.requests[1].Messages[2]
 	if assistant.ReasoningContent == "" || len(assistant.ToolCalls) != 1 {
 		t.Fatalf("thinking tool turn was not preserved for the provider: %+v", assistant)
+	}
+}
+
+func TestRunnerKeepsFailedProviderAttemptInTrace(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("X-Request-ID", "failed-request-1")
+		writer.WriteHeader(401)
+		io.WriteString(writer, `{"error":{"message":"test-provider-secret private prompt"}}`)
+	}))
+	defer server.Close()
+	provider := localProvider(t, server, ProviderOpenAICompatible, nil)
+	result, err := NewRunner(provider, &countingTools{}).Run(context.Background(), Config{Repository: "/tmp/repo", Model: "test-model"}, fixtureRunInput())
+	if err == nil || result.Status != review.AgentFailed || len(result.Completions) != 1 || result.Completions[0].HTTPStatus != 401 || result.Completions[0].RequestID != "failed-request-1" || result.Completions[0].ErrorKind != "invalid_api_key" {
+		t.Fatalf("failure trace missing: %+v error=%v", result, err)
+	}
+	if strings.Contains(string(mustMarshal(t, result)), "test-provider-secret") || strings.Contains(err.Error(), "private prompt") {
+		t.Fatal("failure trace leaked response body")
+	}
+}
+
+func TestRunnerStopsBeforeSendingOversizedToolConversation(t *testing.T) {
+	provider := &scriptedProvider{responses: []CompletionResponse{{
+		FinishReason: "tool_calls", Message: Message{Role: "assistant", ReasoningContent: strings.Repeat("x", 32*1024), ToolCalls: []ToolCall{{ID: "call-1", Name: "read_file_lines", Arguments: json.RawMessage(`{}`)}}},
+	}}}
+	result, err := NewRunner(provider, &countingTools{}).Run(context.Background(), Config{Repository: "/tmp/repo", MaxInputBytes: 16 * 1024, MaxSteps: 3}, fixtureRunInput())
+	if err != nil || result.Status != review.AgentPartial || len(provider.requests) != 1 || !strings.Contains(strings.Join(result.Warnings, " "), "cumulative conversation") {
+		t.Fatalf("oversized conversation sent or reported complete: %+v %v", result, err)
+	}
+}
+
+func TestRunnerReservesInitialProtocolBudgetAndReportsReducedCoverage(t *testing.T) {
+	input := fixtureRunInput()
+	input.Context.Intent.Description = strings.Repeat("x", 14*1024)
+	rawMessages, _, err := buildInitialMessages(input, 16*1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if conversationInputBytes(rawMessages, nil, true) <= 16*1024 {
+		t.Fatal("fixture must exceed the total budget only after protocol serialization")
+	}
+	provider := &scriptedProvider{responses: []CompletionResponse{{FinishReason: "stop", Message: Message{Role: "assistant", Content: `{"summary":"No candidates in the reviewed portion.","candidates":[]}`}}}}
+	result, err := NewRunner(provider, &countingTools{}).Run(context.Background(), Config{Repository: "/tmp/repo", MaxInputBytes: 16 * 1024}, input)
+	if err != nil || result.Status != review.AgentPartial || len(provider.requests) != 1 {
+		t.Fatalf("large initial context could not be reviewed: %+v %v", result, err)
+	}
+	if conversationInputBytes(provider.requests[0].Messages, provider.requests[0].Tools, true) > 16*1024 {
+		t.Fatal("first request exceeded configured input budget")
+	}
+}
+
+func TestRunnerKeepsEarlierOutputTruncationVisible(t *testing.T) {
+	provider := &scriptedProvider{responses: []CompletionResponse{
+		{FinishReason: "length", Message: Message{Role: "assistant", ToolCalls: []ToolCall{{ID: "call-1", Name: "read_file_lines", Arguments: json.RawMessage(`{}`)}}}},
+		{FinishReason: "stop", Message: Message{Role: "assistant", Content: `{"summary":"No candidates found.","candidates":[]}`}},
+	}}
+	result, err := NewRunner(provider, &countingTools{}).Run(context.Background(), Config{Repository: "/tmp/repo"}, fixtureRunInput())
+	if err != nil || result.Status != review.AgentPartial || !strings.Contains(strings.Join(result.Warnings, " "), "token limit at step 1") {
+		t.Fatalf("earlier output truncation hidden: %+v %v", result, err)
+	}
+}
+
+func TestRunnerSchemaErrorDoesNotPublishUnknownPayloadFields(t *testing.T) {
+	provider := &scriptedProvider{responses: []CompletionResponse{{Message: Message{Role: "assistant", Content: `{"private-code-prompt":true}`}}}}
+	result, err := NewRunner(provider, &countingTools{}).Run(context.Background(), Config{Repository: "/tmp/repo"}, fixtureRunInput())
+	if err == nil || result.Status != review.AgentFailed || strings.Contains(err.Error(), "private-code-prompt") || strings.Contains(string(mustMarshal(t, result)), "private-code-prompt") {
+		t.Fatalf("schema error leaked response content: %+v %v", result, err)
 	}
 }
 

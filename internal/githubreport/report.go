@@ -33,22 +33,24 @@ type Counts struct {
 }
 
 type GateResult struct {
-	Blocked              bool
-	BlockedByFinding     bool
-	BlockedByNeedsReview bool
-	Incomplete           bool
-	Degraded             bool
-	NeedsReview          bool
-	Highest              Priority
-	NeedsReviewHighest   Priority
-	IncompleteReasons    []string
-	DegradedReasons      []string
+	Blocked                bool
+	BlockedByFinding       bool
+	BlockedByNeedsReview   bool
+	BlockedByRequiredAgent bool
+	Incomplete             bool
+	Degraded               bool
+	NeedsReview            bool
+	Highest                Priority
+	NeedsReviewHighest     Priority
+	IncompleteReasons      []string
+	DegradedReasons        []string
 }
 
 type Options struct {
 	FailOn            Priority `json:"fail_on"`
 	FailOnNeedsReview Priority `json:"fail_on_needs_review"`
 	FailOnIncomplete  bool     `json:"fail_on_incomplete"`
+	RequireAgent      bool     `json:"require_agent,omitempty"`
 	ArtifactName      string   `json:"artifact_name,omitempty"`
 	MaxFindings       int      `json:"max_findings,omitempty"`
 }
@@ -100,6 +102,7 @@ func Evaluate(report review.ReviewReport, failOn Priority, failOnIncomplete bool
 }
 
 func EvaluateWithOptions(report review.ReviewReport, options Options) GateResult {
+	report = WithUnverifiedCandidates(report)
 	if options.FailOn == "" {
 		options.FailOn = PriorityP1
 	}
@@ -113,17 +116,24 @@ func EvaluateWithOptions(report review.ReviewReport, options Options) GateResult
 		DegradedReasons:    degradedReasons(report),
 	}
 	result.Incomplete = len(result.IncompleteReasons) > 0
+	if options.RequireAgent && !agentRequirementMet(report) {
+		result.IncompleteReasons = append(result.IncompleteReasons, "The required Reasoning Agent did not complete for this source change.")
+		result.Incomplete = true
+		result.BlockedByRequiredAgent = true
+	}
 	result.Degraded = len(result.DegradedReasons) > 0
 	result.NeedsReview = result.NeedsReviewHighest != PriorityNone
 	result.BlockedByFinding = priorityBlocks(result.Highest, options.FailOn)
 	result.BlockedByNeedsReview = priorityBlocks(result.NeedsReviewHighest, options.FailOnNeedsReview)
 	result.Blocked = result.BlockedByFinding ||
 		result.BlockedByNeedsReview ||
+		result.BlockedByRequiredAgent ||
 		(options.FailOnIncomplete && result.Incomplete)
 	return result
 }
 
 func RenderSummary(report review.ReviewReport, options Options) []byte {
+	report = WithUnverifiedCandidates(report)
 	if options.FailOn == "" {
 		options.FailOn = PriorityP1
 	}
@@ -142,7 +152,7 @@ func RenderSummary(report review.ReviewReport, options Options) []byte {
 	var output bytes.Buffer
 	output.WriteString("# 🛡️ Aegis Code Review\n\n")
 	switch {
-	case gate.Incomplete && options.FailOnIncomplete:
+	case gate.Incomplete && (options.FailOnIncomplete || gate.BlockedByRequiredAgent):
 		output.WriteString("> ❌ **Review incomplete — merge gate blocked.** Inspect the stage status and rerun Aegis.\n\n")
 	case priorityBlocks(gate.Highest, options.FailOn):
 		fmt.Fprintf(&output, "> ❌ **Merge gate blocked.** A finding met the `%s` failure threshold.\n\n", strings.ToUpper(string(options.FailOn)))
@@ -150,6 +160,8 @@ func RenderSummary(report review.ReviewReport, options Options) []byte {
 		fmt.Fprintf(&output, "> ❌ **Merge gate blocked pending human review.** An unresolved `%s` hypothesis met the `%s` needs-review threshold.\n\n", strings.ToUpper(string(gate.NeedsReviewHighest)), strings.ToUpper(string(options.FailOnNeedsReview)))
 	case gate.NeedsReview:
 		output.WriteString("> ⚠️ **Review completed with unresolved hypotheses requiring human review.**\n\n")
+	case gate.Incomplete:
+		output.WriteString("> ⚠️ **Review incomplete — merge allowed by configuration.** This is not a clean-review verdict.\n\n")
 	case gate.Degraded && len(report.Findings) > 0:
 		output.WriteString("> ⚠️ **Review completed with degraded optional stages and non-blocking findings.** Deterministic evidence remains available.\n\n")
 	case gate.Degraded:
@@ -242,6 +254,7 @@ func RenderSummary(report review.ReviewReport, options Options) []byte {
 }
 
 func RenderAnnotations(report review.ReviewReport, maximum int) []byte {
+	report = WithUnverifiedCandidates(report)
 	if maximum <= 0 {
 		maximum = DefaultMaxAnnotations
 	}
@@ -341,6 +354,9 @@ func incompleteReasons(report review.ReviewReport) []string {
 		reasons = append(reasons, "Deterministic analysis completed only partially.")
 	case review.AnalysisFailed:
 		reasons = append(reasons, "Deterministic analysis failed.")
+	case review.AnalysisComplete:
+	default:
+		reasons = append(reasons, "Deterministic analysis has an unknown or missing status.")
 	}
 	switch report.Verification.Status {
 	case review.VerificationPartial:
@@ -349,8 +365,64 @@ func incompleteReasons(report review.ReviewReport) []string {
 		}
 	case review.VerificationFailed:
 		reasons = append(reasons, "Candidate verification failed.")
+	case review.VerificationNotRun:
+		if len(report.Agent.Candidates) > 0 {
+			reasons = append(reasons, "Candidate verification was not run for returned hypotheses.")
+		}
+	case review.VerificationComplete:
+	default:
+		reasons = append(reasons, "Candidate verification has an unknown or missing status.")
 	}
 	return reasons
+}
+
+func agentRequirementMet(report review.ReviewReport) bool {
+	if report.Agent.Status == review.AgentComplete {
+		return true
+	}
+	if report.Agent.Status != review.AgentSkipped {
+		return false
+	}
+	return !review.HasReviewableSourceChange(report.Files)
+}
+
+// WithUnverifiedCandidates prevents a disabled/aborted Verifier from hiding
+// model hypotheses. It works on a copy, leaving the original evidence intact.
+func WithUnverifiedCandidates(report review.ReviewReport) review.ReviewReport {
+	seen := make(map[string]bool)
+	cloned := false
+	for index, candidate := range report.Verification.Candidates {
+		switch candidate.Verdict {
+		case review.CandidateVerified, review.CandidateRejected, review.CandidateNeedsReview, review.CandidateInconclusive:
+		default:
+			if !cloned {
+				report.Verification.Candidates = append([]review.CandidateVerification(nil), report.Verification.Candidates...)
+				cloned = true
+			}
+			report.Verification.Candidates[index].Verdict = review.CandidateNeedsReview
+			report.Verification.Candidates[index].Reason = "The verifier verdict is missing or unsupported; this hypothesis has not been resolved."
+			report.Verification.Summary.NeedsReview++
+			report.Verification.Status = review.VerificationPartial
+			report.Verification.Warnings = append(append([]string(nil), report.Verification.Warnings...), "unsupported verifier verdict requires human review")
+		}
+		seen[candidate.CandidateID] = true
+	}
+	for _, candidate := range report.Agent.Candidates {
+		if seen[candidate.ID] {
+			continue
+		}
+		if !cloned {
+			report.Verification.Candidates = append([]review.CandidateVerification(nil), report.Verification.Candidates...)
+			cloned = true
+		}
+		report.Verification.Candidates = append(report.Verification.Candidates, review.CandidateVerification{
+			CandidateID: candidate.ID, Title: candidate.Title, Severity: candidate.Severity, Location: candidate.Location,
+			Verdict: review.CandidateNeedsReview, Reason: "This model hypothesis has no completed verifier verdict; human review is required.",
+		})
+		report.Verification.Summary.NeedsReview++
+		seen[candidate.ID] = true
+	}
+	return report
 }
 
 func degradedReasons(report review.ReviewReport) []string {

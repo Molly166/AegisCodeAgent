@@ -114,26 +114,13 @@ func (t RepositoryTools) readFileLines(ctx context.Context, raw json.RawMessage)
 	if arguments.EndLine-arguments.StartLine+1 > maxReadLines {
 		return "", "", fmt.Errorf("requested range exceeds %d lines", maxReadLines)
 	}
-	path, relative, err := t.resolvePath(arguments.Path)
+	_, relative, err := t.resolvePath(arguments.Path)
 	if err != nil {
 		return "", "", err
 	}
-	info, err := os.Stat(path)
+	file, _, err := t.openSourceFile(relative)
 	if err != nil {
-		return "", "", fmt.Errorf("stat file: %w", err)
-	}
-	if !info.Mode().IsRegular() {
-		return "", "", errors.New("path must reference a regular file")
-	}
-	if !searchableFile(path) {
-		return "", "", errors.New("path is not an allowed source or project text file")
-	}
-	if info.Size() > maxSearchFileBytes {
-		return "", "", fmt.Errorf("file exceeds %d byte tool limit", maxSearchFileBytes)
-	}
-	file, err := os.Open(path)
-	if err != nil {
-		return "", "", fmt.Errorf("open file: %w", err)
+		return "", "", err
 	}
 	defer file.Close()
 
@@ -220,17 +207,14 @@ func (t RepositoryTools) searchCode(ctx context.Context, raw json.RawMessage) (s
 		if entry.Type()&os.ModeSymlink != 0 || !searchableFile(path) {
 			return nil
 		}
-		info, err := entry.Info()
-		if err != nil || !info.Mode().IsRegular() || info.Size() > maxSearchFileBytes {
+		file, info, err := t.openSourceFile(relativePath)
+		if err != nil {
 			return nil
 		}
 		bytesScanned += info.Size()
 		if bytesScanned > maxSearchTotalBytes {
+			_ = file.Close()
 			return io.ErrUnexpectedEOF
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			return nil
 		}
 		scanner := bufio.NewScanner(file)
 		scanner.Buffer(make([]byte, 16*1024), maxSearchFileBytes)
@@ -274,6 +258,39 @@ func (t RepositoryTools) searchCode(ctx context.Context, raw json.RawMessage) (s
 	})
 	output := marshalToolOutput(map[string]any{"ok": true, "query": arguments.Query, "matches": matches, "truncated": truncated})
 	return output, fmt.Sprintf("found %d match(es) for %q", len(matches), truncateText(arguments.Query, 80)), nil
+}
+
+// openSourceFile enforces the repository boundary at the actual open, not just
+// when resolvePath or WalkDir inspected the path. Root.Open cannot follow a
+// replaced file or parent symlink outside the trusted canonical repository.
+// The returned file owns its descriptor independently of the temporary Root.
+func (t RepositoryTools) openSourceFile(relative string) (*os.File, fs.FileInfo, error) {
+	if !filepath.IsLocal(relative) || !allowedToolPath(relative) || !searchableFile(relative) {
+		return nil, nil, errors.New("path is not an allowed repository source or project text file")
+	}
+	root, err := os.OpenRoot(t.repository)
+	if err != nil {
+		return nil, nil, fmt.Errorf("open repository root: %w", err)
+	}
+	defer root.Close()
+	file, err := root.Open(filepath.FromSlash(relative))
+	if err != nil {
+		return nil, nil, fmt.Errorf("open repository file: %w", err)
+	}
+	info, err := file.Stat()
+	if err != nil {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("stat opened file: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		_ = file.Close()
+		return nil, nil, errors.New("path must reference a regular file")
+	}
+	if info.Size() > maxSearchFileBytes {
+		_ = file.Close()
+		return nil, nil, fmt.Errorf("file exceeds %d byte tool limit", maxSearchFileBytes)
+	}
+	return file, info, nil
 }
 
 func (t RepositoryTools) resolvePath(candidate string) (string, string, error) {

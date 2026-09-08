@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -34,6 +35,27 @@ type promptChangedFile struct {
 	Binary bool              `json:"binary"`
 	Stats  review.FileStats  `json:"stats"`
 	Hunks  []review.Hunk     `json:"hunks"`
+}
+
+// Account for JSON escaping, the system message, and tool declarations before
+// sending the first turn. Reducing only the raw diff budget can otherwise leave
+// no room for the protocol wrapper and abort a large review before any model call.
+func buildBudgetedInitialMessages(input RunInput, maxBytes int, definitions []ToolDefinition, replayReasoning bool) ([]Message, []string, error) {
+	budget := maxBytes
+	warnings := make([]string, 0)
+	for attempts := 0; attempts < 8 && budget > 1024; attempts++ {
+		messages, currentWarnings, err := buildInitialMessages(input, budget)
+		warnings = uniqueStrings(append(warnings, currentWarnings...))
+		if err != nil {
+			return nil, warnings, err
+		}
+		encodedBytes := conversationInputBytes(messages, definitions, replayReasoning)
+		if encodedBytes <= maxBytes {
+			return messages, warnings, nil
+		}
+		budget -= encodedBytes - maxBytes + 256
+	}
+	return nil, warnings, errors.New("system prompt and tool declarations cannot fit within max-input-bytes")
 }
 
 func buildInitialMessages(input RunInput, maxBytes int) ([]Message, []string, error) {

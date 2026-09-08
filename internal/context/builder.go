@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -77,7 +78,7 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 	if err != nil {
 		return review.ContextBundle{}, err
 	}
-	exports := b.loadExports(ctx, repository, input.Packages)
+	exports, exportErr := b.loadExports(ctx, repository, input.Packages)
 	index := newRepositoryIndex(repository, budget, exports)
 	for _, packageInfo := range packages {
 		if err := ctx.Err(); err != nil {
@@ -95,6 +96,9 @@ func (b Builder) Build(ctx context.Context, input Input) (review.ContextBundle, 
 	bundle.Truncated = bundle.Truncated || intent.Truncated
 	bundle.Stats.EstimatedTokens += estimatedIntentTokens(intent)
 	bundle.Warnings = append(bundle.Warnings, intentWarnings...)
+	if exportErr != nil {
+		bundle.Warnings = append(bundle.Warnings, "Go export metadata is incomplete; type context may use AST fallback: "+exportErr.Error())
+	}
 	if index.typeCheckFailures > 0 {
 		bundle.Warnings = append(bundle.Warnings, fmt.Sprintf(
 			"%d package(s) used AST fallback because complete go/types information was unavailable",
@@ -116,16 +120,23 @@ func estimatedIntentTokens(intent review.ChangeIntent) int {
 	return (len(encoded) + 3) / 4
 }
 
-func (b Builder) loadExports(ctx context.Context, repository string, patterns []string) map[string]string {
+func (b Builder) loadExports(ctx context.Context, repository string, patterns []string) (map[string]string, error) {
 	arguments := []string{"list", "-deps", "-export", "-json"}
 	arguments = append(arguments, patterns...)
 	execution, err := b.runner.Run(ctx, analyzer.Command{
 		Name: "go", Arguments: arguments, Directory: repository,
 	})
 	if err != nil {
-		return map[string]string{}
+		return map[string]string{}, fmt.Errorf("run go list export: %w", err)
+	}
+	if execution.Truncated {
+		return map[string]string{}, errors.New("go list export output was truncated")
+	}
+	if execution.ExitCode != 0 {
+		return map[string]string{}, fmt.Errorf("go list export exited with code %d", execution.ExitCode)
 	}
 	exports := make(map[string]string)
+	var boundaryErr error
 	decoder := json.NewDecoder(strings.NewReader(execution.Stdout))
 	for {
 		var packageInfo struct {
@@ -133,13 +144,43 @@ func (b Builder) loadExports(ctx context.Context, repository string, patterns []
 			Export     string
 		}
 		if err := decoder.Decode(&packageInfo); err != nil {
-			break
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return exports, errors.New("invalid go list export JSON")
 		}
 		if packageInfo.ImportPath != "" && packageInfo.Export != "" {
+			if sandbox, ok := b.runner.(interface{ ExportRoots() []string }); ok {
+				resolved, resolveErr := filepath.EvalSymlinks(packageInfo.Export)
+				if resolveErr != nil || !exportWithinRoots(resolved, sandbox.ExportRoots()) {
+					boundaryErr = errors.New("compiler export path escaped the allowed cache or could not be resolved")
+					continue
+				}
+				info, statErr := os.Stat(resolved)
+				if statErr != nil || !info.Mode().IsRegular() || info.Size() > 64*1024*1024 {
+					boundaryErr = errors.New("compiler export file is invalid or exceeds its size limit")
+					continue
+				}
+				packageInfo.Export = resolved
+			}
 			exports[packageInfo.ImportPath] = packageInfo.Export
 		}
 	}
-	return exports
+	return exports, boundaryErr
+}
+
+func exportWithinRoots(path string, roots []string) bool {
+	for _, root := range roots {
+		resolved, err := filepath.EvalSymlinks(root)
+		if err != nil {
+			continue
+		}
+		relative, err := filepath.Rel(resolved, path)
+		if err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (b Builder) loadPackages(ctx context.Context, repository string, patterns []string) ([]goListPackage, error) {
@@ -150,6 +191,9 @@ func (b Builder) loadPackages(ctx context.Context, repository string, patterns [
 	})
 	if err != nil {
 		return nil, fmt.Errorf("run go list: %w", err)
+	}
+	if execution.Truncated {
+		return nil, errors.New("go list package output was truncated")
 	}
 	if execution.ExitCode != 0 {
 		detail := strings.TrimSpace(execution.CombinedOutput())

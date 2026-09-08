@@ -48,6 +48,33 @@ func TestLoadRejectsVersionAndTrailingJSON(t *testing.T) {
 	}
 }
 
+func TestLoadProviderCapabilitiesAndRetryConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "aegis.json")
+	content := `{"version":1,"agent":{"provider":"openai-compatible","model":"chosen-model","request_timeout":"45s","max_retries":0,"capabilities":{"tool_calling":true,"json_output":false,"reasoning":"effort","replay_reasoning":false,"token_limit_field":"max_completion_tokens"}}}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Agent.MaxRetries == nil || *loaded.Agent.MaxRetries != 0 || loaded.Agent.Capabilities == nil || !loaded.Agent.Capabilities.ToolCalling || loaded.Agent.Capabilities.JSONOutput || loaded.Agent.Capabilities.TokenLimitField != "max_completion_tokens" || loaded.Agent.RequestTimeout != "45s" {
+		t.Fatalf("lost explicit provider settings: %+v", loaded.Agent)
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1,"agent":{"capabilities":{"unknown":true}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("unknown capability property accepted")
+	}
+	if err := os.WriteFile(path, []byte(`{"version":1}`+strings.Repeat(" ", maxConfigBytes)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized config accepted: %v", err)
+	}
+}
+
 func TestAPIKeyPrefersEnvironmentAndReadsDotEnv(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, ".env")

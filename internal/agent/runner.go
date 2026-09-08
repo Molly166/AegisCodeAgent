@@ -31,10 +31,10 @@ func NewRunner(provider Provider, tools ToolExecutor) Runner {
 
 func ValidateProvider(name string) error {
 	switch strings.ToLower(strings.TrimSpace(name)) {
-	case ProviderNone, ProviderDeepSeek:
+	case ProviderNone, ProviderDeepSeek, ProviderOrcaRouter, ProviderOpenAICompatible:
 		return nil
 	default:
-		return fmt.Errorf("unsupported agent provider %q (supported: none, deepseek)", name)
+		return fmt.Errorf("unsupported agent provider %q (supported: none, deepseek, orcarouter, openai-compatible)", name)
 	}
 }
 
@@ -48,14 +48,14 @@ func NormalizeConfig(configuration Config) (Config, error) {
 	if configuration.Model == "" {
 		configuration.Model = DefaultModel
 	}
-	if len(configuration.Model) > 128 || strings.ContainsAny(configuration.Model, " \t\r\n") {
-		return Config{}, errors.New("agent model must be at most 128 characters and contain no whitespace")
+	if err := validateModel(configuration.Model); err != nil {
+		return Config{}, err
 	}
 	if configuration.ReasoningEffort == "" {
 		configuration.ReasoningEffort = "high"
 	}
 	switch configuration.ReasoningEffort {
-	case "low", "medium", "high", "xhigh", "max":
+	case "minimal", "low", "medium", "high", "xhigh", "max":
 	default:
 		return Config{}, fmt.Errorf("unsupported reasoning effort %q", configuration.ReasoningEffort)
 	}
@@ -93,6 +93,7 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 		result.Provider = r.provider.Name()
 	}
 	result.Model = configuration.Model
+	result.RequestedModel = configuration.Model
 	result.Thinking = configuration.Thinking
 	defer func() { result.DurationMillis = time.Since(started).Milliseconds() }()
 
@@ -102,6 +103,7 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 		return result, err
 	}
 	result.Model = configuration.Model
+	result.RequestedModel = configuration.Model
 	if !hasReviewableSourceChange(input.Files) {
 		result.Status = review.AgentSkipped
 		result.Summary = "Reasoning was skipped because this comparison contains no supported source-code changes."
@@ -118,25 +120,67 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 		return result, err
 	}
 
-	messages, warnings, err := buildInitialMessages(input, configuration.MaxInputBytes)
+	definitions := r.tools.Definitions()
+	jsonOutput := true
+	toolCallingEnabled := true
+	replayReasoning := true
+	if provider, ok := r.provider.(CapabilityProvider); ok {
+		capabilities := provider.Capabilities(configuration.Model)
+		replayReasoning = capabilities.ReplayReasoning
+		if !capabilities.ToolCalling {
+			toolCallingEnabled = false
+			definitions = nil
+			result.Warnings = append(result.Warnings, "tool calling is disabled for the selected model; review uses only the supplied diff and repository context")
+		}
+		if !capabilities.JSONOutput {
+			jsonOutput = false
+			result.Warnings = append(result.Warnings, "JSON mode is disabled for the selected model; final output is still strictly validated against the candidate schema")
+		}
+	}
+	messages, warnings, err := buildBudgetedInitialMessages(input, configuration.MaxInputBytes, definitions, replayReasoning)
 	result.Warnings = append(result.Warnings, warnings...)
 	if err != nil {
 		result.Warnings = append(result.Warnings, err.Error())
 		return result, err
 	}
-	definitions := r.tools.Definitions()
+	outputTruncated := false
 	for step := 1; step <= configuration.MaxSteps; step++ {
 		if err := ctx.Err(); err != nil {
 			result.Warnings = append(result.Warnings, err.Error())
 			return result, err
 		}
+		// Bound cumulative conversation growth as well as the initial diff. Tools
+		// and reasoning from earlier turns must not silently exhaust the budget.
+		if conversationInputBytes(messages, definitions, replayReasoning) > configuration.MaxInputBytes {
+			result.Status = review.AgentPartial
+			result.Warnings = append(result.Warnings, "agent stopped because the cumulative conversation exceeds max-input-bytes")
+			return result, nil
+		}
+		completionStarted := time.Now()
 		response, err := r.provider.Complete(ctx, CompletionRequest{
 			Model: configuration.Model, Messages: messages, Tools: definitions,
-			JSONOutput: true, Thinking: configuration.Thinking,
+			JSONOutput: jsonOutput, Thinking: configuration.Thinking,
 			ReasoningEffort: configuration.ReasoningEffort,
 			MaxOutputTokens: configuration.MaxOutputTokens,
 		})
 		result.Steps = step
+		metadata := response.Metadata
+		if metadata.Provider == "" {
+			metadata.Provider = r.provider.Name()
+		}
+		if metadata.RequestedModel == "" {
+			metadata.RequestedModel = configuration.Model
+		}
+		if metadata.DurationMillis == 0 {
+			metadata.DurationMillis = time.Since(completionStarted).Milliseconds()
+		}
+		if metadata.ResolvedModel == "" {
+			metadata.ResolvedModel = response.Model
+		}
+		if err != nil && metadata.ErrorKind == "" {
+			metadata.ErrorKind = "completion_failed"
+		}
+		result.Completions = append(result.Completions, review.AgentCompletionTrace{Step: step, CompletionMetadata: metadata})
 		if err != nil {
 			wrapped := fmt.Errorf("%s completion step %d: %w", r.provider.Name(), step, err)
 			result.Warnings = append(result.Warnings, wrapped.Error())
@@ -147,8 +191,17 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 			result.Model = response.Model
 		}
 		messages = append(messages, response.Message)
+		if response.FinishReason == "length" {
+			outputTruncated = true
+			result.Warnings = append(result.Warnings, fmt.Sprintf("model output reached the token limit at step %d; coverage may be incomplete", step))
+		}
 
 		if len(response.Message.ToolCalls) > 0 {
+			if !toolCallingEnabled {
+				err := errors.New("model returned tool calls while tool calling is disabled")
+				result.Warnings = append(result.Warnings, err.Error())
+				return result, err
+			}
 			if len(response.Message.ToolCalls) > maxReturnedToolCallsPerStep {
 				err := fmt.Errorf("model returned %d tool calls in one step; protocol maximum is %d", len(response.Message.ToolCalls), maxReturnedToolCallsPerStep)
 				result.Warnings = append(result.Warnings, err.Error())
@@ -201,7 +254,7 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 			return result, wrapped
 		}
 		result.Status = review.AgentComplete
-		if len(validationWarnings) > 0 || response.FinishReason == "length" {
+		if len(validationWarnings) > 0 || len(warnings) > 0 || outputTruncated {
 			result.Status = review.AgentPartial
 		}
 		result.Warnings = uniqueStrings(result.Warnings)
@@ -214,16 +267,7 @@ func (r Runner) Run(ctx context.Context, configuration Config, input RunInput) (
 }
 
 func hasReviewableSourceChange(files []review.ChangedFile) bool {
-	for _, file := range files {
-		if file.Binary || file.Status == review.FileStatusDeleted || file.NewPath == "" || !allowedToolPath(file.NewPath) {
-			continue
-		}
-		switch strings.ToLower(filepath.Ext(file.NewPath)) {
-		case ".go", ".mod", ".sum", ".json", ".yaml", ".yml", ".toml", ".sql", ".proto":
-			return true
-		}
-	}
-	return false
+	return review.HasReviewableSourceChange(files)
 }
 
 func addUsage(total *review.AgentUsage, value review.AgentUsage) {
@@ -260,10 +304,10 @@ func parseCandidateOutput(content string, files []review.ChangedFile, maxCandida
 	decoder.DisallowUnknownFields()
 	var envelope candidateEnvelope
 	if err := decoder.Decode(&envelope); err != nil {
-		return nil, "", nil, fmt.Errorf("decode candidate JSON: %w", err)
+		return nil, "", nil, errors.New("decode candidate JSON: malformed JSON or invalid schema")
 	}
 	if err := ensureDecoderEOF(decoder); err != nil {
-		return nil, "", nil, fmt.Errorf("decode candidate JSON: %w", err)
+		return nil, "", nil, errors.New("decode candidate JSON: trailing content is not allowed")
 	}
 	if envelope.Summary == nil || strings.TrimSpace(*envelope.Summary) == "" || envelope.Candidates == nil {
 		return nil, "", nil, errors.New("summary and candidates fields are required")

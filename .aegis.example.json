@@ -8,6 +8,8 @@
     "thinking": true,
     "reasoning_effort": "high",
     "timeout": "3m",
+    "request_timeout": "90s",
+    "max_retries": 2,
     "max_steps": 6,
     "max_candidates": 12,
     "max_input_bytes": 98304,

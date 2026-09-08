@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -76,6 +77,94 @@ func TestRepositoryToolsRejectSymlinkEscape(t *testing.T) {
 	})
 	if result.Status != review.AgentToolRejected || !strings.Contains(result.Content, "escapes") {
 		t.Fatalf("symlink escape was not rejected: %+v", result)
+	}
+	search := tools.Execute(context.Background(), ToolCall{
+		Name: "search_code", Arguments: json.RawMessage(`{"query":"secret","path":"","max_results":5,"case_sensitive":true}`),
+	})
+	if search.Status != review.AgentToolSucceeded || strings.Contains(search.Content, "package secret") {
+		t.Fatalf("symlink source leaked through search: %+v", search)
+	}
+}
+
+func TestRepositoryToolsOpenSourceFileRejectsPathReplacement(t *testing.T) {
+	for _, replaceDirectory := range []bool{false, true} {
+		name := "file"
+		if replaceDirectory {
+			name = "parent-directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			repository := t.TempDir()
+			sourceDir := filepath.Join(repository, "src")
+			if err := os.Mkdir(sourceDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			sourceFile := filepath.Join(sourceDir, "main.go")
+			if err := os.WriteFile(sourceFile, []byte("package safe\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			outside := t.TempDir()
+			outsideFile := filepath.Join(outside, "main.go")
+			if err := os.WriteFile(outsideFile, []byte("package private\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			tools, err := NewRepositoryTools(repository)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, checkedRelative, err := tools.resolvePath("src/main.go")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Deterministically replace the already validated path, modeling
+			// a repository mutation between inspection and the actual open.
+			replaced, target := sourceFile, outsideFile
+			if replaceDirectory {
+				replaced, target = sourceDir, outside
+			}
+			if err := os.Rename(replaced, replaced+".checked"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, replaced); err != nil {
+				t.Skipf("symlinks unavailable: %v", err)
+			}
+			file, _, err := tools.openSourceFile(checkedRelative)
+			if file != nil {
+				_ = file.Close()
+			}
+			if err == nil {
+				t.Fatal("checked source path escaped repository after replacement")
+			}
+		})
+	}
+}
+
+func TestRepositoryToolsOpenSourceFileKeepsRegularFileDescriptor(t *testing.T) {
+	repository := t.TempDir()
+	const content = "package safe\n"
+	if err := os.WriteFile(filepath.Join(repository, "main.go"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	tools, err := NewRepositoryTools(repository)
+	if err != nil {
+		t.Fatal(err)
+	}
+	file, info, err := tools.openSourceFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer file.Close()
+	data, err := io.ReadAll(file)
+	if err != nil || string(data) != content || info.Size() != int64(len(content)) {
+		t.Fatalf("root-bound regular file read failed: data=%q info=%v error=%v", data, info, err)
+	}
+	for _, candidate := range []string{"../main.go", filepath.Join(repository, "main.go"), ".secrets.json", "main.exe"} {
+		opened, _, err := tools.openSourceFile(candidate)
+		if opened != nil {
+			_ = opened.Close()
+		}
+		if err == nil {
+			t.Errorf("unsafe candidate %q was accepted", candidate)
+		}
 	}
 }
 

@@ -160,25 +160,6 @@ func Run(config *Config) {
 	config.Env = append(config.Env, "SERVICE_TOKEN="+os.Getenv("SERVICE_TOKEN"))
 }
 
-func TestVerifierFailsClosedWhenSemanticSourceCannotBeParsed(t *testing.T) {
-	repository := t.TempDir()
-	if err := os.WriteFile(filepath.Join(repository, "main.go"), []byte("package sample\nfunc broken( {\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	files := []review.ChangedFile{{
-		NewPath: "main.go", Status: review.FileStatusModified,
-		Hunks: []review.Hunk{{NewStart: 2, NewLines: 1, Lines: []review.DiffLine{{Kind: review.LineAddition, NewLine: 2}}}},
-	}}
-	output, err := New(&fakePipeline{}).Run(context.Background(), Config{Repository: repository}, Input{
-		Files: files, Agent: review.EmptyAgentRun(review.AgentSkipped),
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if output.Verification.Status != review.VerificationPartial || len(output.Verification.Warnings) == 0 {
-		t.Fatalf("semantic parse failure did not fail closed: %+v", output.Verification)
-	}
-}
 `
 	if err := os.WriteFile(filepath.Join(repository, "main.go"), []byte(content), 0o600); err != nil {
 		t.Fatal(err)

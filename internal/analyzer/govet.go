@@ -28,10 +28,10 @@ func (a GoVetAnalyzer) Analyze(ctx context.Context, input Input) ([]review.Findi
 	arguments := []string{"vet", "-json"}
 	arguments = append(arguments, input.Packages...)
 	execution, err := a.runner.Run(ctx, Command{Name: "go", Arguments: arguments, Directory: input.Repository})
-	if err != nil {
-		return nil, err
-	}
 	findings := parseGoVetDiagnostics(input.Repository, execution)
+	if err = executionError(execution, err); err != nil {
+		return findings, err
+	}
 	if execution.ExitCode != 0 && len(findings) == 0 {
 		return nil, commandFailure(NameGoVet, execution)
 	}
