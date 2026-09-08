@@ -18,7 +18,7 @@ func TestAllAdaptersRejectTruncatedCustomRunnerOutput(t *testing.T) {
 		name, tool, output string
 		create             func(Runner) Analyzer
 	}{
-		{NameGoTest, "go", `{"Action":"output","Output":"./main_test.go:2: earlier failure\n"}`, func(r Runner) Analyzer { return NewGoTestAnalyzer(r) }},
+		{NameGoTest, "go", "{\"Action\":\"output\",\"Package\":\"sample\",\"Test\":\"TestFailure\",\"Output\":\"./main_test.go:2: earlier failure\\n\"}\n{\"Action\":\"fail\",\"Package\":\"sample\",\"Test\":\"TestFailure\"}", func(r Runner) Analyzer { return NewGoTestAnalyzer(r) }},
 		{NameGoVet, "go", `{"sample":{"printf":[{"posn":"/repo/main.go:2:1","message":"earlier diagnostic"}]}}`, func(r Runner) Analyzer { return NewGoVetAnalyzer(r) }},
 		{NameStaticcheck, NameStaticcheck, `{"code":"SA5001","location":{"file":"/repo/main.go","line":2},"message":"earlier diagnostic"}`, func(r Runner) Analyzer { return NewStaticcheckAnalyzer(r) }},
 		{NameGosec, NameGosec, `{"Issues":[{"severity":"HIGH","confidence":"HIGH","rule_id":"G204","details":"earlier diagnostic","file":"/repo/main.go","line":"2"}]}`, func(r Runner) Analyzer { return NewGosecAnalyzer(r) }},

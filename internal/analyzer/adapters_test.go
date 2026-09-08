@@ -3,6 +3,8 @@ package analyzer
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,18 +12,22 @@ import (
 )
 
 func TestGoTestAnalyzerParsesJSONDiagnostic(t *testing.T) {
+	repository := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repository, "main_test.go"), []byte(strings.Repeat("// source line\n", 12)), 0600); err != nil {
+		t.Fatal(err)
+	}
 	runner := &fakeRunner{
 		available: map[string]bool{"go": true},
 		executions: map[string]Execution{"go": {
 			ExitCode: 1,
 			Stdout: strings.Join([]string{
-				`{"Action":"output","Package":"example.com/app","Output":"./main_test.go:12: expected 1, got 2\n"}`,
+				`{"Action":"output","Package":"example.com/app","Test":"TestValue","Output":"./main_test.go:12: expected 1, got 2\n"}`,
 				`{"Action":"fail","Package":"example.com/app","Test":"TestValue"}`,
 			}, "\n"),
 		}},
 	}
 	analyzer := NewGoTestAnalyzer(runner)
-	findings, err := analyzer.Analyze(context.Background(), Input{Repository: "/repo", Packages: []string{"."}})
+	findings, err := analyzer.Analyze(context.Background(), Input{Repository: repository, Packages: []string{"."}})
 	if err != nil {
 		t.Fatalf("Analyze() error = %v", err)
 	}
