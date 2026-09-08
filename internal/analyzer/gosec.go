@@ -29,10 +29,10 @@ func (a GosecAnalyzer) Analyze(ctx context.Context, input Input) ([]review.Findi
 	arguments := []string{"-fmt=json", "-quiet"}
 	arguments = append(arguments, input.Packages...)
 	execution, err := a.runner.Run(ctx, Command{Name: NameGosec, Arguments: arguments, Directory: input.Repository})
-	if err != nil {
-		return nil, err
-	}
 	findings := parseGosecDiagnostics(input.Repository, execution)
+	if err = executionError(execution, err); err != nil {
+		return findings, err
+	}
 	if execution.ExitCode != 0 && len(findings) == 0 {
 		return nil, commandFailure(NameGosec, execution)
 	}

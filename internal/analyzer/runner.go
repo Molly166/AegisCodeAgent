@@ -52,17 +52,17 @@ func (r OSRunner) Run(ctx context.Context, command Command) (Execution, error) {
 		Truncated: stdout.Truncated() || stderr.Truncated(),
 	}
 	if err == nil {
-		return execution, nil
+		return execution, executionError(execution, nil)
 	}
 	if ctx.Err() != nil {
-		return execution, ctx.Err()
+		return execution, executionError(execution, ctx.Err())
 	}
 	var exitError *exec.ExitError
 	if errors.As(err, &exitError) {
 		execution.ExitCode = exitError.ExitCode()
-		return execution, nil
+		return execution, executionError(execution, nil)
 	}
-	return execution, fmt.Errorf("start %s: %w", command.Name, err)
+	return execution, executionError(execution, fmt.Errorf("start %s: %w", command.Name, err))
 }
 
 type limitedBuffer struct {
@@ -77,6 +77,9 @@ func newLimitedBuffer(limit int) *limitedBuffer {
 
 func (b *limitedBuffer) Write(data []byte) (int, error) {
 	originalLength := len(data)
+	if originalLength == 0 {
+		return 0, nil
+	}
 	remaining := b.limit - b.buffer.Len()
 	if remaining <= 0 {
 		b.truncated = true

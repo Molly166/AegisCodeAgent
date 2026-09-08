@@ -166,6 +166,7 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 	}
 
 	usedSemantic := make(map[string]struct{})
+	promotedByDiagnostic := make(map[string]review.Finding)
 	for index := range inspected {
 		item := &inspected[index]
 		if !item.valid {
@@ -174,11 +175,6 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 		}
 		existingMatches := findCorroborating(item.candidate, input.Findings)
 		focusedMatches := findCorroborating(item.candidate, focusedFindings)
-		for _, match := range focusedMatches {
-			if strings.HasPrefix(match.Source, "semantic:") {
-				usedSemantic[match.Fingerprint] = struct{}{}
-			}
-		}
 		matches := append(append([]review.Finding(nil), existingMatches...), focusedMatches...)
 		if len(matches) == 0 {
 			item.result.Verdict = review.CandidateNeedsReview
@@ -204,10 +200,22 @@ func (v Verifier) Run(ctx context.Context, configuration Config, input Input) (o
 			item.result.FindingID = findingIdentity(existingMatches[0])
 			item.result.Promoted = false
 		} else {
-			promoted := promoteCandidate(item.candidate, item.result.SourceSnapshot, focusedMatches, item.result.CalibratedConfidence)
+			selected := focusedMatches[0]
+			diagnosticID := findingIdentity(selected)
+			promoted, alreadyPromoted := promotedByDiagnostic[diagnosticID]
+			if !alreadyPromoted {
+				promoted = promoteCandidate(item.result.SourceSnapshot, selected, item.result.CalibratedConfidence)
+				promotedByDiagnostic[diagnosticID] = promoted
+				output.PromotedFindings = append(output.PromotedFindings, promoted)
+			}
 			item.result.FindingID = promoted.ID
-			item.result.Promoted = true
-			output.PromotedFindings = append(output.PromotedFindings, promoted)
+			item.result.Promoted = !alreadyPromoted
+			// Only this exact diagnostic was published above, with its own
+			// severity and claim unchanged. Other matched semantic evidence must
+			// survive independently, including when a model understates risk.
+			if strings.HasPrefix(selected.Source, "semantic:") {
+				usedSemantic[selected.Fingerprint] = struct{}{}
+			}
 		}
 		output.Verification.Candidates = append(output.Verification.Candidates, item.result)
 	}
@@ -328,9 +336,8 @@ func readSourceSnapshot(repository string, location review.Location) (string, er
 		if lineNumber > location.EndLine {
 			break
 		}
-		fmt.Fprintf(&builder, "%d | %s\n", lineNumber, truncateUTF8(scanner.Text(), 800))
-		if builder.Len() > maxSnapshotBytes {
-			break
+		if builder.Len() <= maxSnapshotBytes {
+			fmt.Fprintf(&builder, "%d | %s\n", lineNumber, truncateUTF8(scanner.Text(), 800))
 		}
 	}
 	if err := scanner.Err(); err != nil {
@@ -338,6 +345,9 @@ func readSourceSnapshot(repository string, location review.Location) (string, er
 	}
 	if lineNumber < location.StartLine || builder.Len() == 0 {
 		return "", errors.New("source line does not exist")
+	}
+	if lineNumber < location.EndLine {
+		return "", errors.New("source range extends beyond the end of the file")
 	}
 	return truncateUTF8(strings.TrimSpace(builder.String()), maxSnapshotBytes), nil
 }
@@ -352,10 +362,12 @@ func findCorroborating(candidate review.CandidateFinding, findings []review.Find
 			continue
 		}
 		shared := sharedSignals(
-			candidate.Title+" "+candidate.Description+" "+candidate.Evidence,
-			finding.Title+" "+finding.Description+" "+finding.Evidence+" "+finding.RuleID,
+			candidate.Title+" "+candidate.Description,
+			finding.Title+" "+finding.Description+" "+finding.RuleID,
 		)
-		if len(shared) == 0 && !(candidate.Category == review.CategoryTesting && finding.Source == analyzer.NameGoTest) {
+		// Repeating source in Evidence is not an independent match. Even after
+		// textual corroboration we promote only the diagnostic's supported claim.
+		if len(shared) == 0 {
 			continue
 		}
 		matches = append(matches, finding)
@@ -369,19 +381,20 @@ func findCorroborating(candidate review.CandidateFinding, findings []review.Find
 	return matches
 }
 
-func promoteCandidate(candidate review.CandidateFinding, snapshot string, matches []review.Finding, confidence float64) review.Finding {
-	digest := sha256.Sum256([]byte("verified|" + candidate.Fingerprint))
+func promoteCandidate(snapshot string, strongest review.Finding, confidence float64) review.Finding {
+	// Identity belongs to the independently observed diagnostic. Rephrasing a
+	// candidate must not duplicate it or change its priority in the merge gate.
+	digest := sha256.Sum256([]byte("verified|" + findingIdentity(strongest)))
 	fingerprint := hex.EncodeToString(digest[:])
-	strongest := matches[0]
-	evidence := strings.TrimSpace(candidate.Evidence) + "\n\nVerifier corroboration: " + strongest.Source + "/" + strongest.RuleID + " — " + strongest.Title
+	evidence := strings.TrimSpace(strongest.Evidence) + "\n\nVerifier corroboration: " + strongest.Source + "/" + strongest.RuleID + " — " + strongest.Title
 	if snapshot != "" {
 		evidence += "\n\nVerified source snapshot:\n" + snapshot
 	}
 	return review.Finding{
 		ID: "AEGIS-V-" + strings.ToUpper(fingerprint[:12]), RuleID: "agent-verified:" + strongest.RuleID,
-		Title: candidate.Title, Description: candidate.Description,
-		Severity: conservativeSeverity(candidate.Severity, matches), Category: candidate.Category,
-		Location: candidate.Location, Evidence: truncateUTF8(evidence, 6000), Suggestion: candidate.Suggestion,
+		Title: strongest.Title, Description: strongest.Description,
+		Severity: strongest.Severity, Category: strongest.Category,
+		Location: strongest.Location, Evidence: truncateUTF8(evidence, 6000), Suggestion: strongest.Suggestion,
 		Confidence: confidence, Source: "verifier:" + strongest.Source, Fingerprint: fingerprint,
 	}
 }
@@ -492,25 +505,13 @@ func signalTokens(value string) map[string]struct{} {
 }
 
 func calibratedConfidence(candidate float64, matches []review.Finding) float64 {
-	confidence := clamp(candidate, 0, 1)
-	for _, finding := range matches {
-		confidence = 1 - (1-confidence)*(1-clamp(finding.Confidence, 0, 1))
+	if len(matches) == 0 {
+		return 0
 	}
-	return clamp(confidence, 0.5, 0.99)
-}
-
-func conservativeSeverity(candidate review.Severity, matches []review.Finding) review.Severity {
-	result := candidate
-	strongest := review.SeverityInfo
-	for _, finding := range matches {
-		if severityRank(finding.Severity) > severityRank(strongest) {
-			strongest = finding.Severity
-		}
-	}
-	if severityRank(result) > severityRank(strongest) {
-		return strongest
-	}
-	return result
+	// Correlated diagnostics and model assertions are not independent trials.
+	// The first match is the diagnostic actually selected below; confidence
+	// from another claim must not inflate its evidence score.
+	return clamp(min(clamp(candidate, 0, 1), clamp(matches[0].Confidence, 0, 1)), 0, 0.99)
 }
 
 func summarize(candidates []review.CandidateVerification) review.VerificationSummary {

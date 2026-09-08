@@ -35,6 +35,17 @@ go.work.sum
 /review.json
 /review.md
 
+# Generated local release/evaluation output
+/bin/
+/artifacts/
+/dist/
+/eval-report.html
+/eval-live-report.html
+/eval-live-report.json
+/eval-live-*.html
+/eval-live-*.json
+.DS_Store
+
 # Editor/IDE
 # .idea/
 # .vscode/

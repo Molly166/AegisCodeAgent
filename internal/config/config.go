@@ -28,17 +28,30 @@ type VerifierConfig struct {
 }
 
 type AgentConfig struct {
-	Provider        string `json:"provider"`
-	Model           string `json:"model"`
-	BaseURL         string `json:"base_url"`
-	APIKeyEnv       string `json:"api_key_env"`
-	Thinking        *bool  `json:"thinking"`
-	ReasoningEffort string `json:"reasoning_effort"`
-	Timeout         string `json:"timeout"`
-	MaxSteps        int    `json:"max_steps"`
-	MaxCandidates   int    `json:"max_candidates"`
-	MaxInputBytes   int    `json:"max_input_bytes"`
-	MaxOutputTokens int    `json:"max_output_tokens"`
+	Provider        string             `json:"provider"`
+	Model           string             `json:"model"`
+	BaseURL         string             `json:"base_url"`
+	APIKeyEnv       string             `json:"api_key_env"`
+	Thinking        *bool              `json:"thinking"`
+	ReasoningEffort string             `json:"reasoning_effort"`
+	Timeout         string             `json:"timeout"`
+	MaxSteps        int                `json:"max_steps"`
+	MaxCandidates   int                `json:"max_candidates"`
+	MaxInputBytes   int                `json:"max_input_bytes"`
+	MaxOutputTokens int                `json:"max_output_tokens"`
+	RequestTimeout  string             `json:"request_timeout,omitempty"`
+	MaxRetries      *int               `json:"max_retries,omitempty"`
+	Capabilities    *ModelCapabilities `json:"capabilities,omitempty"`
+}
+
+// ModelCapabilities applies to the explicitly selected model, not every model
+// behind a gateway. Unknown models use conservative protocol defaults.
+type ModelCapabilities struct {
+	ToolCalling     bool   `json:"tool_calling"`
+	JSONOutput      bool   `json:"json_output"`
+	Reasoning       string `json:"reasoning"`
+	ReplayReasoning bool   `json:"replay_reasoning"`
+	TokenLimitField string `json:"token_limit_field,omitempty"`
 }
 
 func Load(path string) (File, error) {
@@ -48,7 +61,14 @@ func Load(path string) (File, error) {
 	}
 	defer file.Close()
 
-	decoder := json.NewDecoder(io.LimitReader(file, maxConfigBytes+1))
+	encoded, err := io.ReadAll(io.LimitReader(file, maxConfigBytes+1))
+	if err != nil {
+		return File{}, fmt.Errorf("read config %q: %w", path, err)
+	}
+	if len(encoded) > maxConfigBytes {
+		return File{}, fmt.Errorf("config exceeds %d bytes", maxConfigBytes)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	var result File
 	if err := decoder.Decode(&result); err != nil {

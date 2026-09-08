@@ -1,269 +1,152 @@
 # AegisCodeAgent
 
-[![CI](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml)
-[![Aegis Code Review](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml)
-![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
-AegisCodeAgent 是一个使用 Go 开发、自动运行在 GitHub Pull Request 上的代码审核 Agent。它将确定性分析、仓库级上下文、大模型推理和独立验证组合起来，只把具有可靠证据的问题发布到最终审核结果中。
+**运行在 GitHub PR 中的 Go 代码评审 Agent。** 结合静态分析、仓库上下文、模型推理和独立证据验证，输出 P0–P3 风险结论、代码行标注与 HTML 证据报告。无需部署独立 App 或常驻服务。
 
-> **当前里程碑：v0.7。** Aegis 已具备 50 Case Golden Regression Corpus、Replay Eval Harness、语义型验证、显式 Needs Review 门禁、PR 变更意图上下文，以及启用四类分析器的 GitHub 流水线。目前主要面向 Go 项目，并首先接入 DeepSeek 作为推理模型。
+> **当前为 v1 发布候选开发版。** 已实现可复用 Workflow、多 Provider、隔离分析和真实代码评测；不代表已发布版本标签、完成在线模型验收或部署报告网站。[已验证范围与限制](docs/validation.md)。
 
-## 创建 Pull Request 后会发生什么？
+> **两阶段迁移提示：** 仓库存在 `examples/aegis-review-v1-migration.yml` 时属于阶段 1，实际 PR 工作流保留旧版本，下文的四 Job 沙箱/可复用工作流**尚未启用**。先将实现合入可信 `master`，再删除暂存文件并将实际 `.github/workflows/aegis-review.yml` 切换为 v1，才进入阶段 2。PR #12 已暴露升级及 CI 失败，本轮修复仍待线上验收；配置切换也不等于上线通过。请按[两阶段顺序](docs/github-action.md)执行，不得默认信任目标 Head 来绕过。
 
-使用者不需要启动服务器，也不需要在本地保持进程运行。GitHub Actions 会自动启动 Aegis，使用 PR Base 审核准确的 Head Commit，并将结果发布回 Pull Request。
+## 新人先看：它如何工作？
 
-```text
-Pull Request 创建或更新
-          │
-          ▼
-    可信 Workflow 编排
-          │
-          ▼
- Git Diff 与变更行范围
-          │
-          ├──────────────► 确定性 Go 分析器
-          │                 go test · go vet · staticcheck · gosec
-          │
-          └──────────────► 仓库上下文引擎
-                            PR 意图 · 仓库规则 · AST · 类型 · 调用者 · 测试
-                                      │
-                                      ▼
-                           DeepSeek Reasoning Agent
-                                      │
-                                      ▼
-                                证据 Verifier
-                                      │
-                                      ▼
-                 P0-P3 Annotation · Job Summary · HTML 报告
-```
+以下是 v1 工作流完成启用与验收后的行为：你向分支提交代码并创建/更新 PR，GitHub Actions 自动启动 Aegis，审核精确的 PR Head。完成后，在 PR 中更新同一条 Bot 评论，给出结论、问题位置和完整报告链接，并通过独立的 **Aegis merge gate** Check 返回门禁结果。
 
-模型不能直接决定代码是否可以合并。静态分析问题本身需要包含可复现证据；模型候选必须通过位置、Diff、源码快照、聚焦诊断或语义证据检查才能晋升。无效假设会被 Rejected；暂时无法证实或证伪的假设会明确进入 `Needs Review`，其中 P0 默认阻断，绝不会再呈现成“没有问题”。
+- **先看结论和 Findings：** 统一 P0–P3，展示代码位置、证据和建议。
+- **不把不确定当作没问题：** 未确认假设进入 `Needs Review`；执行不完整、覆盖降级单独展示。
+- **门禁可配置：** 默认阻断有证据的 P0/P1 和未确认的 P0 假设；P2/P3 本身不阻断。
+- **模型可选：** 支持 DeepSeek 直连、OrcaRouter 预设及显式配置的 OpenAI-compatible 接口。无 Key 时为静态模式，设置 `require-agent: true` 才强制模型评审完成。
+- **报告可追溯：** 默认上传 HTML/JSON Artifact；公开 HTTPS 发布为独立、人工确认的可选流程，不会自动公开 PR 代码。
+
+**必须在仓库 Ruleset/分支保护中，将实际显示的 Aegis merge gate 设为必需检查，GitHub 才会按该检查限制合入。** 调用方 Job 可能为检查名添加前缀。
 
 ## 项目架构
 
-系统按照输入与输出明确的阶段进行拆分：
-
-| 阶段 | 职责 | 输出 | 实现位置 |
-| --- | --- | --- | --- |
-| GitHub 编排 | 响应 PR 事件，检出可信 Base 与准确 Head，取消过期任务 | 可复现的审核工作区 | `.github/workflows/aegis-review.yml` |
-| Diff 引擎 | 安全解析 Revision，处理三点 Diff、重命名、二进制文件、Hunk 与变更行 | 标准化 Change Set | `internal/gitdiff/` |
-| 静态分析 | 并发运行分析器，实施超时，统一诊断格式并去重 | 具有证据的 Findings | `internal/analyzer/` |
-| 上下文引擎 | 将 PR 标题、正文、标签、Issue 和仓库规范与 Go 声明、类型关系共同排序 | Repository Context Bundle | `internal/context/` |
-| Reasoning Agent | 让 DeepSeek 通过只读工具检查受限证据并生成结构化候选 | 未验证 Candidates | `internal/agent/` |
-| Verifier V2 | 校验身份与位置，重跑聚焦检查，执行源码感知的语义规则并关联独立证据 | Verified/Needs Review/Rejected 结论 | `internal/verifier/` |
-| 发布层 | 映射 P0-P3、执行合并阈值、渲染 GitHub 输出和完整报告 | Summary、Annotation、HTML/JSON | `internal/githubreport/`、`internal/report/` |
-| Eval Harness | Replay 50 个带来源与分布契约的 Bug/Clean/Needs Review/韧性报告 | Precision、Recall、F1、P0-P3 Recall、Gate Accuracy、False Block Rate | `internal/eval/`、`eval/catalog.json`、`eval/cases/` |
-| 凭证边界 | 从仓库代码控制的子进程中移除凭证类环境变量 | 安全的子进程环境 | `internal/secureenv/` |
-
-### 一个 Finding 如何进入最终报告
-
 ```text
-确定性诊断 ───────────────────────────────────────────► 最终 Finding
-
-模型候选
-   │
-   ▼
-Schema + 仓库边界 + 变更行校验
-   │
-   ▼
-聚焦分析器 + 语义证据关联
-   │
-   ├── Verified ──────────────────────────────────────► 最终 Finding
-   ├── Rejected ──────────────────────────────────────► 仅保留审计记录
-   └── Needs Review ──────────────────────────────────► 明确展示并交给人工复核；P0 默认阻断
+PR opened / synchronize
+          ↓
+解析可信评审器版本、精确 Base / Head
+          ↓
+Diff → 并发静态分析 → 仓库上下文
+          │ go test / vet / staticcheck / gosec
+          │ AST / 类型 / 调用关系 / 测试 / PR 意图 / 仓库规范
+          ↓
+Reasoning Agent ⇄ 有预算和路径限制的只读工具
+          ↓
+Verifier → Verified / Needs Review / Rejected
+          ↓
+独立 Publisher → HTML + 代码行标注 + PR 评论
+          ↓
+独立必需 Check → 合并策略
 ```
 
-最终报告使用稳定的 `ReviewReport` 领域模型。CLI、GitHub Publisher、HTML Renderer 和 JSON 自动化接口共享这一模型，使审核逻辑不会与展示方式耦合。
+静态诊断携带分析器证据。模型只能提出 Candidate，经过身份、Diff 位置、源码快照及独立诊断/语义证据验证后，才能成为最终 Finding。Verifier 不是通用漏洞证明器：不能证实的语义问题仍交由人工核验，模型不直接决定是否合入。
 
-## 开箱即用：GitHub 自动审核
+| 模块 | 职责 | 代码位置 |
+| --- | --- | --- |
+| Diff | 精确版本、三点比较、变更行和重命名 | `internal/gitdiff` |
+| Analysis | 并发工具、超时、输出限制和 Docker 执行 | `internal/analyzer` |
+| Context | 预算约束的 Go AST/类型/符号关系、测试关联、PR 意图和规范 | `internal/context` |
+| Agent | Provider 能力适配、工具循环、结构化候选和请求追踪 | `internal/agent` |
+| Verifier | 源码感知证据关联、候选裁决与保守晋升 | `internal/verifier` |
+| Publisher | 独立门禁、评论/标注、HTML 渲染 | `internal/githubreport`、`internal/report` |
+| Eval | 固定报告回放与真实代码运行两套评测 | `internal/eval`、`internal/liveeval` |
+| Delivery | 可复用 PR Workflow、发布包和可选报告托管 | `.github/workflows`、`scripts` |
 
-这是在当前仓库或个人 Fork 中使用 Aegis 的推荐方式。
+### 为什么要拆分分析与发布？
 
-### 第一步：准备仓库
+Aegis 自身评审从可信 PR Base 编译评审器；其他仓库调用时，从被调用 Aegis Workflow 的实际 SHA 编译。**不会使用目标 PR Head 中的代码编译评审器。**
 
-如果需要，先 Fork 仓库，然后 Clone：
+分析 Job 仅有 GitHub 读取权限；可能加载或执行 PR Go 代码的命令进入无网络 Docker 容器：只读源码、独立资源限制、不挂载模型 Key。公共模块依赖先由无凭据容器预下载。Publisher 在新的 runner 中验证提交身份，并从 JSON 重新生成 HTML、评论及门禁。
 
-```bash
-git clone https://github.com/<你的 GitHub 用户名>/AegisCodeAgent.git
+容器不等于虚拟机级别隔离。本地默认 `--sandbox host` 仅适用于可信仓库；CI 不会为使检查通过而自动解除隔离。[安全边界](SECURITY.md)。
+
+## 其他仓库如何开箱使用？
+
+阶段 2 完成验收后，只需添加一份 Workflow，无需复制 Aegis 源码或自行维护服务。阶段 1 的旧实际工作流不支持此 `workflow_call` 接入，不可用该阶段的 SHA 替换占位符。在目标仓库创建 `.github/workflows/aegis.yml`：
+
+```yaml
+name: Aegis review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    uses: Molly166/AegisCodeAgent/.github/workflows/aegis-review.yml@REPLACE_WITH_RELEASE_COMMIT_SHA
+    with:
+      provider: deepseek
+      model: deepseek-v4-flash
+      fail-on: p1
+      fail-on-needs-review: p0
+      require-agent: false
+    secrets:
+      provider-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+```
+
+`REPLACE_WITH_RELEASE_COMMIT_SHA` 必须替换为**已经审核、发布且包含该 Workflow 的完整提交 SHA**。它不是可以直接运行的版本名；本文不声称 `v1` 标签已经发布。
+
+在 **Settings → Secrets and variables → Actions** 添加模型 Key。使用 OrcaRouter 时，改为 `provider: orcarouter`、选择经过测试的模型 ID（预设示例 `deepseek/deepseek-v4-flash`），并引用 `secrets.ORCAROUTER_API_KEY`。模型可用性以实际服务为准。不使用模型时设置 `provider: none`，省略 secrets。
+
+Fork/Dependabot PR 不取得模型凭据；无评论写权限时，仍通过 Checks、Summary 和 Artifact 查看结果。设置 `require-agent: true` 会有意阻断这种静态降级。上下文/可选模型的降级不会凭空变成 P0/P1，但必需证据缺失仍默认失败。
+
+完整参数、权限、首次升级迁移和依赖限制见 [GitHub 接入说明](docs/github-action.md)。旧 Base 尚不支持新 Sandbox/Publisher 时，首次迁移 PR 会 fail closed，需要维护者审核迁移，不能通过编译 Head 的评审器来绕过信任边界。
+
+## 本地开发与调试
+
+需要 Go 1.24+、Git；v1 使用 `os.Root` 限制仓库文件读取边界。CI 将评审器与分析器固定为同一 Go 工具链。Docker 模式额外要求 Linux Docker 和可信分析镜像。
+
+若 Shell 通过 `GOTOOLCHAIN` 固定了旧版 Go，请为构建和测试显式选择兼容版本（CI 为 `go1.26.6`）。精简的发布二进制运行 `eval-live` 时，可通过 `--go-binary /绝对路径/go` 指定匹配的本地工具链；评测器不会自动下载编译器。
+
+```sh
+git clone https://github.com/Molly166/AegisCodeAgent.git
 cd AegisCodeAgent
 go test ./...
+go build -trimpath -o /tmp/aegis ./cmd/aegis
+
+# 在可信、干净且检出于目标 Head 的工作区执行。
+/tmp/aegis review --repo . --base origin/master --head HEAD \
+  --agent-provider none --analyzers default \
+  --format html --output /tmp/aegis-review.html
 ```
 
-确认仓库的 **Settings → Actions → General** 已经允许运行 GitHub Actions。
+`default` 为 `go test/go vet`；`all` 还需要 `staticcheck/gosec`，CI 镜像已包含。CLI 是底层执行引擎，不是需要用户常驻启动的独立产品；`review` 生成证据，`github` 独立计算发布策略。
 
-### 第二步：选择审核模式
+`.aegis.example.json` 是不含密钥的配置示例，通过 `--config` 显式加载。API Key 放环境变量，本地也可使用忽略提交的 `.env`；CI 禁止读取目标 PR 的配置和 `.env`。模型能力、超时/重试预算、自定义 HTTPS 地址授权和请求追踪见 [Provider 文档](docs/providers.md)。
 
-确定性审核模式不需要任何 Secret：
+## Eval：回归通过 ≠ 真实检出率
 
-```text
-go test + go vet + staticcheck + gosec + 语义 Verifier + GitHub 报告
+| 套件 | 输入 | 验证什么 |
+| --- | --- | --- |
+| 50 个 Golden 回放用例 | 27 Bug、15 Clean、5 Needs Review、3 韧性场景的固定报告 | 匹配器、门禁和结果契约是否回归；**不是**实时模型准确率 |
+| 12 个真实代码用例 | 8 Bug、4 Clean 的合成 Git Base/Head | 实际运行评审二进制，保留漏检、误拦截、不完整、耗时和使用量 |
+
+```sh
+# 固定报告与门禁回归，默认严格模式。
+/tmp/aegis eval --corpus eval/cases --format html --output /tmp/aegis-golden.html
+
+# 真正执行代码，无模型费用；如实呈现静态分析漏检。
+/tmp/aegis eval-live --corpus eval/live --agent-provider none \
+  --analyzers default --repeats 1 --format html --output /tmp/aegis-live.html
 ```
 
-如需启用完整的 Reasoning Agent 与 Verifier，在 **Settings → Secrets and variables → Actions** 中创建 Repository Secret：
+真实评测记录语料/二进制哈希、工具链、精确提交、Provider/Model、原始报告及带分母的指标；不会拿 Golden Report 代替真实执行。当前匹配采用保守的词项规则，不是独立语义裁判；12 个合成样本不足以证明生产效果。
 
-```text
-Name:  DEEPSEEK_API_KEY
-Value: <你的 DeepSeek API Key>
-```
+开启真实模型的 `eval-live` 必须显式指定模型，会消耗你的 API 配额。应固定语料、模型、预算和分析器，使用重复运行及 Verifier 消融比较，方法见 [Eval 说明](eval/README.md)。Token 缺失表示未知，不伪造美元成本。
 
-Fork 和 Dependabot Pull Request 永远不会获得该 Secret，并会自动使用确定性审核模式。
+## 报告、发布与贡献
 
-### 第三步：正常提交功能分支
+- [报告托管](docs/report-hosting.md)：默认有访问边界的 Artifact；公开 Pages 必须人工确认，不能用于保密源码。
+- [GitHub 接入与发布包](docs/github-action.md)：六平台构建、SHA256 与完整 SHA 固定；构建产物不等于已经发布 Release。
+- [贡献指南](CONTRIBUTING.md)：测试、语料变更、安全负向用例。
+- [安全说明](SECURITY.md)：凭据、提示注入、依赖和容器限制。
+- [验收记录](docs/validation.md)：已实际运行的验证，以及仍需外部环境完成的验收。
 
-```bash
-git switch master
-git pull --ff-only origin master
-git switch -c feature/my-change
+本版本聚焦 Go 单模块仓库。其他语言/配置文件可以提供推理上下文，但没有同等静态和语义验证覆盖。私有依赖供应、通用语义证明、自动修复和生产级准确率承诺不属于本发布候选的已验收能力。
 
-# 修改代码或文档。
-git add .
-git commit -m "feat: describe the change"
-git push -u origin feature/my-change
-```
+## 许可
 
-创建从 `feature/my-change` 到 `master` 的 Pull Request。`opened` 事件会启动 Aegis；此后每次 Push 都会产生 `synchronize` 事件、触发新审核并取消已经过期的运行。
-
-纯文档 Pull Request 仍然会触发 Workflow，并生成 Summary 和报告 Artifact。当不存在受支持的源码证据时，Aegis 可以跳过不必要的模型推理，但确定性分析、报告发布和门禁语义仍然可审计。
-
-### 第四步：查看审核结果
-
-进入 Pull Request 后依次查看：
-
-1. **Conversation**：Aegis 持续更新的审核评论，以及完整 HTML 报告入口。
-2. **Checks → Aegis Code Review**：执行状态和 Job Summary。
-3. **Annotations**：绑定到变更文件及代码行的问题。
-4. **Artifacts → aegis-review-report**：完整的 `review.html` 和 `review.json`。
-5. 最终 Check 状态：是否通过合并门禁。
-
-| 优先级 | 含义 | GitHub Annotation | 默认阻断 |
-| --- | --- | --- | :---: |
-| P0 | Critical | Error | 是 |
-| P1 | High | Error | 是 |
-| P2 | Medium | Warning | 否 |
-| P3 | Low / Info | Notice | 否 |
-
-Reasoning Agent 或仓库上下文降级只表示审核覆盖率下降，不会自行升级为 P0/P1。确定性静态分析或 Verifier 未完整执行仍采用 fail-closed；未解决的 P0 假设则由独立的 Needs Review 阈值控制。
-
-如需强制执行审核结果，在 `master` Branch Ruleset 中将 `Aegis Code Review` 设置为 Required Status Check。GitHub 自身的通知设置负责站内和邮件通知，Aegis 不额外运行邮件服务。
-
-> Aegis 当前是 Repository-native Workflow，还不是 GitHub Marketplace Action。它可以在本仓库及其 Fork 中开箱即用；集成到完全无关的仓库目前需要同时引入 Aegis 源码和 Workflow，封装为可复用 Action 属于后续工作。
-
-## 开箱即用：本地 CLI
-
-环境要求：Go 1.23+ 和 Git。
-
-### 不使用 API Key 的确定性审核
-
-```bash
-go build -o aegis ./cmd/aegis
-
-./aegis review \
-  --repo . \
-  --base master \
-  --head HEAD \
-  --output review.html
-```
-
-使用浏览器打开 `review.html`。由于分析器需要读取真实文件系统，当前 Worktree 必须保持干净并与 `HEAD` 一致。
-
-### 完整 DeepSeek + Verifier 审核
-
-```bash
-cp .aegis.example.json .aegis.json
-cp .env.example .env
-
-# 只把真实 Key 写入已经被 Git 忽略的 .env 文件。
-./aegis review \
-  --config .aegis.json \
-  --repo . \
-  --base master \
-  --head HEAD \
-  --output review.html
-```
-
-`.aegis.json` 保存非敏感的 Provider 设置、预算和超时。API Key 只从 `DEEPSEEK_API_KEY` 或被忽略的 `.env` 中读取。除非显式允许自定义 Endpoint，否则只允许连接 DeepSeek 官方地址。
-
-常用命令：
-
-```bash
-# 生成机器可读报告
-./aegis review --repo . --base master --head HEAD --format json --output review.json
-
-# 安装了 staticcheck 和 gosec 后运行所有适配器
-./aegis review --repo . --base master --head HEAD --analyzers all --output review.html
-
-# Replay 仓库内置回归语料并生成自包含质量看板
-./aegis eval --corpus ./eval/cases --format html --output eval-report.html
-
-# 查看完整参数
-./aegis review --help
-./aegis github --help
-./aegis eval --help
-```
-
-## 安全模型
-
-- Review Binary 从可信的 PR Base Commit 构建，准确的 Head Commit 则在独立目录中作为审核目标。
-- Workflow 只申请只读仓库权限，并关闭 Checkout Credential 持久化。
-- Fork 与 Dependabot PR 不会获得 `DEEPSEEK_API_KEY` 或可写 Token。
-- Git、测试、Vet、Staticcheck 和 Gosec 子进程不会继承凭证类环境变量。
-- Agent 工具只读、限制仓库路径、限制行范围并限制输出大小。
-- GitHub 会把同仓库分支视为 Secret 的可信来源，因此应限制写权限，并强制审核 `.github/workflows/` 下的改动。
-
-## 开发指南
-
-Package 边界：
-
-```text
-cmd/aegis/             CLI 编排和用户可见错误
-internal/gitdiff/      Revision 解析与 Unified Diff 处理
-internal/analyzer/     分析器适配、调度与诊断标准化
-internal/context/      AST/类型索引、关系图、排序与预算
-internal/config/       严格 JSON 配置和最小范围 Dotenv 加载
-internal/agent/        Provider 协议、Prompt、工具与推理循环
-internal/verifier/     候选校验与证据裁决
-internal/eval/         Replay 语料、期望匹配、质量指标与 HTML 看板
-internal/githubreport/ P0-P3 映射、Summary、Annotation 与合并门禁
-internal/secureenv/    子进程凭证隔离
-internal/review/       共享领域模型
-internal/report/       自包含 HTML、JSON 和 Markdown Renderer
-```
-
-创建 Pull Request 前运行质量门禁：
-
-```bash
-go fmt ./...
-go vet ./...
-go test -race ./...
-go build ./cmd/aegis
-```
-
-任何新的 Finding 来源都必须提供真实位置、严重程度、类别、来源、置信度和可复现证据。新的 Agent Candidate 在验证完成之前必须与最终 Findings 保持分离。
-
-## 当前范围与路线图
-
-已经完成：
-
-- 确定性 Go 分析流水线；
-- 仓库上下文引擎；
-- 有边界的 DeepSeek Reasoning Loop；
-- 支持语义证据和显式 Needs Review 的 Verifier V2；
-- Replay Eval Harness 与可重复生成的 50 Case Golden Regression Corpus；
-- PR 变更意图和仓库规范上下文；
-- GitHub Workflow 全量运行 go test、go vet、staticcheck 和 gosec；
-- 自包含 HTML 证据报告；
-- GitHub Actions 触发、Annotation、Artifact 和合并门禁。
-
-下一阶段：
-
-- 在 Golden Replay 指标之外单独建设独立标注的真实 Pipeline 评测，加入重复试验、方差与置信区间；
-- 增加实时模型对比、重复试验和置信区间；
-- 封装可复用 GitHub Action 并提供 Release 分发；
-- 接入更多模型 Provider 和生产可观测性。
-
-## License
-
-[MIT](LICENSE)
+[MIT](LICENSE)。

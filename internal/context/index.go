@@ -101,9 +101,24 @@ func (index *repositoryIndex) addPackage(info goListPackage) {
 		}
 		seen[fileName] = struct{}{}
 		absolutePath := filepath.Join(info.Dir, fileName)
+		resolvedPath, resolveErr := filepath.EvalSymlinks(absolutePath)
+		relativeResolved, relativeErr := filepath.Rel(index.repository, resolvedPath)
+		if resolveErr != nil || relativeErr != nil || relativeResolved == ".." || strings.HasPrefix(relativeResolved, ".."+string(filepath.Separator)) {
+			index.warnings = append(index.warnings, fmt.Sprintf("skip Go source outside repository: %s", fileName))
+			continue
+		}
+		relativeOriginal, originalErr := filepath.Rel(index.repository, absolutePath)
+		if originalErr != nil || !allowedContextSource(relativeOriginal) || !allowedContextSource(relativeResolved) {
+			index.warnings = append(index.warnings, fmt.Sprintf("skip hidden or unsupported Go source: %s", fileName))
+			continue
+		}
 		fileInfo, err := os.Stat(absolutePath)
 		if err != nil {
 			index.warnings = append(index.warnings, fmt.Sprintf("inspect %s: %v", fileName, err))
+			continue
+		}
+		if !fileInfo.Mode().IsRegular() {
+			index.warnings = append(index.warnings, fmt.Sprintf("skip non-regular Go source: %s", fileName))
 			continue
 		}
 		if fileInfo.Size() > index.budget.MaxFileBytes {
@@ -145,6 +160,18 @@ func (index *repositoryIndex) addPackage(info goListPackage) {
 		index.filesParsed++
 		index.indexDeclarations(file)
 	}
+}
+
+func allowedContextSource(path string) bool {
+	if !strings.EqualFold(filepath.Ext(path), ".go") {
+		return false
+	}
+	for _, part := range strings.Split(filepath.ToSlash(path), "/") {
+		if strings.HasPrefix(part, ".") && part != ".github" {
+			return false
+		}
+	}
+	return true
 }
 
 func (index *repositoryIndex) indexDeclarations(file *indexedFile) {

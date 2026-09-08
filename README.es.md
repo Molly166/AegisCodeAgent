@@ -1,269 +1,92 @@
 # AegisCodeAgent
 
-[![CI](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/ci.yml)
-[![Aegis Code Review](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml/badge.svg?branch=master)](https://github.com/Molly166/AegisCodeAgent/actions/workflows/aegis-review.yml)
-![Go 1.23+](https://img.shields.io/badge/Go-1.23%2B-00ADD8?logo=go&logoColor=white)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
-
 [English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
 
-AegisCodeAgent es un agente de revisión de código nativo de Go que se ejecuta automáticamente en los Pull Requests de GitHub. Combina análisis determinista, contexto a nivel de repositorio, razonamiento con LLM y verificación independiente para que solo los hallazgos respaldados por evidencias lleguen a la revisión final.
+Un agente de revisión de código centrado en Go que funciona dentro de los PR de GitHub. Combina análisis estático, contexto del repositorio, razonamiento del modelo y verificación independiente; publica hallazgos P0–P3 y un informe HTML con evidencia. No necesita un servidor permanente.
 
-> **Hito actual: v0.7.** Aegis incorpora un Golden Regression Corpus de 50 casos, un Eval Harness de replay, verificación semántica, un gate explícito para Needs Review, contexto de intención del PR y un Pipeline de GitHub con cuatro analizadores. Sigue centrado en Go y utiliza DeepSeek como primer proveedor de razonamiento.
+> **Candidato de lanzamiento v1 en desarrollo.** Se han implementado workflows reutilizables, proveedores opcionales, análisis aislado y evaluación sobre código real. Esto no significa que exista una etiqueta publicada, una evaluación de calidad con API real o un sitio de informes desplegado. [Validación y límites](docs/validation.md).
 
-## ¿Qué ocurre al abrir un Pull Request?
+> **Migración en dos etapas:** mientras exista `examples/aegis-review-v1-migration.yml`, esta revisión está en la etapa 1 y conserva el workflow de PR antiguo. El workflow reutilizable de cuatro jobs con aislamiento descrito abajo **todavía no está activo**. La etapa 2 requiere integrar primero la implementación en el `master` confiable, eliminar ese archivo y activar v1 en el workflow real. El PR #12 mostró fallos de migración y CI; las correcciones aún requieren validación en GitHub. Sigue el [orden de migración](docs/github-action.md), sin confiar automáticamente en el Head objetivo. Activar la configuración no demuestra que el despliegue haya pasado las pruebas.
 
-No es necesario iniciar un servidor ni mantener un proceso local en ejecución. GitHub Actions inicia Aegis, revisa el Head exacto del PR con respecto a su Base y publica el resultado en el Pull Request.
+## Funcionamiento y arquitectura
 
-```text
-Pull Request abierto o actualizado
-          │
-          ▼
- orquestación mediante un Workflow de confianza
-          │
-          ▼
- Git Diff y alcance de líneas modificadas
-          │
-          ├──────────────► analizadores deterministas de Go
-          │                 go test · go vet · staticcheck · gosec
-          │
-          └──────────────► motor de contexto del repositorio
-                            intención del PR · reglas · AST · tipos · llamadores · pruebas
-                                      │
-                                      ▼
-                         agente de razonamiento DeepSeek
-                                      │
-                                      ▼
-                           verificador de evidencias
-                                      │
-                                      ▼
-                 Annotations P0-P3 · Job Summary · informe HTML
-```
-
-El modelo no decide directamente si el código puede fusionarse. Los candidatos solo se promueven tras validar ubicación, Diff, instantánea del código y evidencias focalizadas o semánticas. Las hipótesis inválidas se rechazan; las que no pueden confirmarse ni descartarse aparecen como `Needs Review`, y las P0 bloquean por defecto en lugar de mostrarse como una revisión limpia.
-
-## Arquitectura
-
-El sistema se divide en etapas con entradas y salidas explícitas:
-
-| Etapa | Responsabilidad | Salida | Implementación |
-| --- | --- | --- | --- |
-| Orquestación de GitHub | Responder a eventos del PR, obtener la Base de confianza y el Head exacto, cancelar ejecuciones obsoletas | Entorno de revisión reproducible | `.github/workflows/aegis-review.yml` |
-| Motor de Diff | Resolver revisiones de forma segura y analizar Diffs de tres puntos, cambios de nombre, binarios, Hunks y líneas modificadas | Change Set normalizado | `internal/gitdiff/` |
-| Análisis estático | Ejecutar analizadores en paralelo con Timeout, normalizar diagnósticos y eliminar duplicados | Hallazgos respaldados por evidencias | `internal/analyzer/` |
-| Motor de contexto | Combinar título, cuerpo, etiquetas e Issues del PR y reglas del repositorio con declaraciones y relaciones de tipos de Go | Repository Context Bundle | `internal/context/` |
-| Reasoning Agent | Permitir que DeepSeek inspeccione evidencias acotadas mediante herramientas de solo lectura y proponga candidatos estructurados | Candidatos sin verificar | `internal/agent/` |
-| Verifier V2 | Validar identidad y ubicación, repetir comprobaciones focalizadas y ejecutar reglas semánticas sensibles al código | Veredictos Verified/Needs Review/Rejected | `internal/verifier/` |
-| Publisher | Convertir severidades a P0-P3, aplicar el umbral de fusión y generar las salidas de GitHub y los informes completos | Summary, Annotations, HTML/JSON | `internal/githubreport/`, `internal/report/` |
-| Eval Harness | Reproducir 50 informes Bug/Clean/Needs Review/resiliencia con contratos de procedencia y distribución | Precision, Recall, F1, P0-P3 Recall, Gate Accuracy, False Block Rate | `internal/eval/`, `eval/catalog.json`, `eval/cases/` |
-| Límite de credenciales | Eliminar variables con forma de credencial de los subprocesos controlados por el repositorio | Entorno de subprocesos saneado | `internal/secureenv/` |
-
-### Ciclo de vida de un Finding
+Lo siguiente describe v1 después de activar y validar su workflow.
 
 ```text
-diagnóstico determinista ─────────────────────────────► Finding final
-
-candidato del modelo
-      │
-      ▼
-validación de Schema + límite del repositorio + línea modificada
-      │
-      ▼
-correlación con analizadores focalizados y evidencias semánticas
-      │
-      ├── Verified ───────────────────────────────────► Finding final
-      ├── Rejected ───────────────────────────────────► solo registro de auditoría
-      └── Needs Review ───────────────────────────────► revisión humana visible; P0 bloquea por defecto
+PR creado / actualizado → revisor confiable y Base/Head exactos
+    → Diff → análisis estático paralelo → contexto AST/tipos/llamadas/tests/intención
+    → Reasoning Agent + herramientas limitadas de solo lectura
+    → Verifier: Verified / Needs Review / Rejected
+    → Publisher independiente: HTML, anotaciones y comentario actualizado
+    → Aegis merge gate
 ```
 
-El informe final utiliza un modelo de dominio `ReviewReport` estable que comparten la CLI, el Publisher de GitHub, el Renderer HTML y la interfaz de automatización JSON. De este modo, la lógica de revisión se mantiene independiente de la presentación.
+Los analizadores son `go test`, `go vet`, `staticcheck` y `gosec`. Una hipótesis del modelo no se convierte directamente en un hallazgo final: se verifican identidad, líneas cambiadas, instantánea del código y evidencia diagnóstica o reglas semánticas limitadas. Lo no confirmado permanece como `Needs Review`, nunca como una revisión limpia.
 
-## Inicio rápido: revisión automática en GitHub
+Por defecto bloquean los P0/P1 respaldados por evidencia y las hipótesis P0 sin resolver. Los P2/P3 por sí solos no bloquean. La degradación de etapas opcionales se distingue de la falta de evidencia obligatoria. `require-agent: true` exige completar el razonamiento del modelo.
 
-Esta es la forma recomendada de utilizar Aegis en este repositorio o en un Fork propio.
+En la autorrevisión se compila el revisor desde el Base confiable; en otros repositorios, desde el SHA resuelto del workflow reutilizable de Aegis, no desde el Head objetivo. Los comandos que ejecutan Go del PR se aíslan en Docker sin red, con código de solo lectura y sin clave del modelo. Un Publisher en otro runner verifica los commits y vuelve a generar el informe y la política a partir de JSON. [Límites de seguridad](SECURITY.md).
 
-### 1. Preparar el repositorio
+## Instalación en otro repositorio
 
-Si es necesario, crea un Fork del repositorio y clónalo:
+Después de validar la etapa 2, añade `.github/workflows/aegis.yml`; no copies el código fuente de Aegis al repositorio consumidor. El workflow antiguo de la etapa 1 no admite esta instalación mediante `workflow_call`.
 
-```bash
-git clone https://github.com/<YOUR_GITHUB_NAME>/AegisCodeAgent.git
-cd AegisCodeAgent
+```yaml
+name: Aegis review
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+jobs:
+  review:
+    uses: Molly166/AegisCodeAgent/.github/workflows/aegis-review.yml@REPLACE_WITH_RELEASE_COMMIT_SHA
+    with:
+      provider: deepseek
+      model: deepseek-v4-flash
+      fail-on: p1
+      fail-on-needs-review: p0
+    secrets:
+      provider-api-key: ${{ secrets.DEEPSEEK_API_KEY }}
+```
+
+Reemplaza el marcador con el **SHA completo de una revisión auditada y publicada que contenga este workflow**. No se presupone que ya exista una etiqueta `v1`. Guarda la clave en GitHub Actions Secrets.
+
+Para OrcaRouter utiliza `provider: orcarouter` y `ORCAROUTER_API_KEY`; comprueba el ID y la disponibilidad del modelo. Para no llamar a modelos externos, usa `provider: none` y omite secrets. Los endpoints HTTPS compatibles y sus capacidades requieren configuración explícita. [Proveedores](docs/providers.md).
+
+Los PR de forks y Dependabot no reciben claves del modelo. Si no pueden escribir comentarios, el resultado sigue disponible en Checks y Artifacts. Configura el check real **Aegis merge gate** como obligatorio en las reglas de rama para que GitHub impida la fusión. La primera migración desde un Base antiguo puede fallar de forma cerrada y requiere revisión explícita del mantenedor. [Guía completa](docs/github-action.md).
+
+## Uso local y evaluación
+
+Requiere Go 1.24+ y Git. v1 utiliza `os.Root` para limitar la lectura al repositorio. Usa una versión de Go compatible tanto para el revisor como para el análisis. El modo local predeterminado `--sandbox host` es solo para código confiable.
+
+```sh
 go test ./...
+go build -trimpath -o /tmp/aegis ./cmd/aegis
+/tmp/aegis review --repo . --base origin/master --head HEAD \
+  --agent-provider none --analyzers default --output /tmp/aegis-review.html
+/tmp/aegis eval --corpus eval/cases --output /tmp/aegis-golden.html
+/tmp/aegis eval-live --corpus eval/live --agent-provider none \
+  --analyzers default --output /tmp/aegis-live.html
 ```
 
-Comprueba que GitHub Actions esté habilitado en **Settings → Actions → General**.
+`default` ejecuta go test/go vet; `all` exige también staticcheck/gosec. La imagen de CI incluye los cuatro. El checkout debe estar limpio y coincidir con el Head solicitado. Carga configuración explícitamente con `--config`, sin guardar claves en JSON.
 
-### 2. Elegir el modo de revisión
+Hay dos evaluaciones distintas:
 
-El modo determinista no requiere ningún Secret:
+- **50 casos Golden de reproducción:** validan informes, correspondencias y regresiones de la política; no miden la precisión de un modelo en vivo.
+- **12 casos de código real:** 8 Bug y 4 Clean, repositorios Git sintéticos ejecutados por el binario real. Conservan omisiones, falsos bloqueos, ejecuciones incompletas, latencia, uso y procedencia.
 
-```text
-go test + go vet + staticcheck + gosec + semantic verifier + GitHub report
-```
+Pocos casos sintéticos y un emparejador léxico no demuestran calidad en producción. La comparación con API requiere modelo explícito, condiciones iguales y repeticiones, y consume cuota. La [guía de evaluación](eval/README.md) explica también la ablación del Verifier.
 
-Para activar el flujo completo de razonamiento y verificación, crea un Repository Secret en **Settings → Secrets and variables → Actions**:
+## Límites y documentación
 
-```text
-Name:  DEEPSEEK_API_KEY
-Value: <your DeepSeek API key>
-```
+Esta versión se centra en repositorios Go de un solo módulo. No garantiza cobertura equivalente para todos los lenguajes, pruebas semánticas universales, correcciones automáticas ni aprovisionamiento de dependencias privadas. Docker no equivale al aislamiento de una máquina virtual.
 
-Los Pull Requests procedentes de Forks y Dependabot nunca reciben este Secret y utilizan automáticamente el modo determinista.
+- [Informes HTTPS](docs/report-hosting.md): Artifact por defecto; Pages público solo mediante aprobación manual. Nunca publiques código confidencial.
+- [Paquetes de lanzamiento](docs/github-action.md): seis combinaciones OS/arquitectura y SHA256. Construir paquetes no publica etiquetas ni Releases automáticamente.
+- [Contribuir](CONTRIBUTING.md), [seguridad](SECURITY.md) y [validación](docs/validation.md).
 
-### 3. Enviar una rama de funcionalidad normal
-
-```bash
-git switch master
-git pull --ff-only origin master
-git switch -c feature/my-change
-
-# Edita código o documentación.
-git add .
-git commit -m "feat: describe the change"
-git push -u origin feature/my-change
-```
-
-Abre un Pull Request de `feature/my-change` hacia `master`. El evento `opened` inicia Aegis; cada Push posterior emite un evento `synchronize`, inicia una revisión nueva y cancela la ejecución obsoleta.
-
-Los Pull Requests que solo modifican documentación también activan el Workflow y reciben un Summary y un Artifact. Aegis puede omitir razonamiento innecesario cuando no hay evidencias de código compatibles, mientras el análisis determinista, la publicación y el Merge Gate siguen siendo auditables.
-
-### 4. Consultar el resultado
-
-Abre el Pull Request y revisa:
-
-1. **Conversation** para consultar el comentario de revisión que Aegis mantiene actualizado y el enlace al informe HTML completo.
-2. **Checks → Aegis Code Review** para ver el estado de ejecución y el Job Summary.
-3. **Annotations** para consultar los hallazgos asociados a archivos y líneas modificados.
-4. **Artifacts → aegis-review-report** para descargar `review.html` y `review.json`.
-5. La conclusión final del Check para conocer la decisión de fusión.
-
-| Prioridad | Significado | Annotation de GitHub | Bloquea por defecto |
-| --- | --- | --- | :---: |
-| P0 | Critical | Error | Sí |
-| P1 | High | Error | Sí |
-| P2 | Medium | Warning | No |
-| P3 | Low / Info | Notice | No |
-
-La degradación del Reasoning Agent o del contexto del repositorio se muestra como una reducción de cobertura y no se convierte por sí sola en P0/P1. Un análisis determinista o Verifier incompleto continúa aplicando fail-closed, mientras que las hipótesis P0 no resueltas usan el umbral independiente de Needs Review.
-
-Para aplicar el resultado de forma obligatoria, añade `Aegis Code Review` como Required Status Check en el Branch Ruleset de `master`. La configuración de notificaciones de GitHub se encarga de los avisos web y por correo electrónico; Aegis no ejecuta un servicio de correo separado.
-
-> Actualmente, Aegis es un Workflow nativo del repositorio y no una Action de GitHub Marketplace. Funciona de inmediato en este repositorio y en sus Forks. Para instalarlo en un repositorio no relacionado todavía es necesario incorporar tanto el código fuente de Aegis como su Workflow; empaquetarlo como Action reutilizable es trabajo futuro.
-
-## Inicio rápido: CLI local
-
-Requisitos: Go 1.23 o posterior y Git.
-
-### Revisión determinista sin API Key
-
-```bash
-go build -o aegis ./cmd/aegis
-
-./aegis review \
-  --repo . \
-  --base master \
-  --head HEAD \
-  --output review.html
-```
-
-Abre `review.html` en un navegador. El Worktree debe estar limpio y coincidir con `HEAD`, ya que los analizadores operan sobre el sistema de archivos real.
-
-### Revisión completa con DeepSeek + Verifier
-
-```bash
-cp .aegis.example.json .aegis.json
-cp .env.example .env
-
-# Guarda la clave real únicamente en el archivo .env ignorado por Git.
-./aegis review \
-  --config .aegis.json \
-  --repo . \
-  --base master \
-  --head HEAD \
-  --output review.html
-```
-
-`.aegis.json` almacena la configuración no sensible del Provider, los presupuestos y los Timeout. La API Key solo se lee desde `DEEPSEEK_API_KEY` o desde el archivo `.env` ignorado. El Endpoint oficial de DeepSeek es obligatorio, salvo que se permita explícitamente un Endpoint personalizado.
-
-Comandos útiles:
-
-```bash
-# Informe legible por máquinas
-./aegis review --repo . --base master --head HEAD --format json --output review.json
-
-# Ejecutar todos los Adapter cuando staticcheck y gosec estén instalados
-./aegis review --repo . --base master --head HEAD --analyzers all --output review.html
-
-# Reproducir el Corpus de regresión y generar un Dashboard autocontenido
-./aegis eval --corpus ./eval/cases --format html --output eval-report.html
-
-# Consultar todas las opciones disponibles
-./aegis review --help
-./aegis github --help
-./aegis eval --help
-```
-
-## Modelo de seguridad
-
-- El Review Binary se compila desde el Commit Base de confianza del PR, mientras que el Commit Head exacto se obtiene en un directorio separado como objetivo del análisis.
-- El Workflow utiliza permisos de repositorio de solo lectura y desactiva la persistencia de credenciales del Checkout.
-- Los PR de Forks y Dependabot no reciben `DEEPSEEK_API_KEY` ni Tokens con permisos de escritura.
-- Git, Test, Vet, Staticcheck y Gosec se ejecutan sin variables de entorno con forma de credencial.
-- Las herramientas del modelo son de solo lectura y están limitadas por ruta del repositorio, intervalo de líneas y volumen de salida.
-- GitHub considera las ramas del mismo repositorio como fuentes de confianza con acceso a Secrets. Restringe los permisos de escritura y exige revisión para los cambios en `.github/workflows/`.
-
-## Guía de desarrollo
-
-Límites de los Packages:
-
-```text
-cmd/aegis/             CLI orchestration and user-facing errors
-internal/gitdiff/      revision resolution and unified-diff parsing
-internal/analyzer/     analyzer adapters, scheduling, normalization
-internal/context/      AST/type index, relationships, ranking, budgets
-internal/config/       strict JSON config and narrow dotenv loading
-internal/agent/        provider protocol, prompt, tools, reasoning loop
-internal/verifier/     candidate validation and evidence adjudication
-internal/eval/         replay corpus, expectation matching, quality dashboard
-internal/githubreport/ P0-P3 mapping, Summary, annotations, merge gate
-internal/secureenv/    child-process credential isolation
-internal/review/       shared domain model
-internal/report/       self-contained HTML, JSON, and Markdown renderers
-```
-
-Ejecuta los controles de calidad antes de abrir un Pull Request:
-
-```bash
-go fmt ./...
-go vet ./...
-go test -race ./...
-go build ./cmd/aegis
-```
-
-Cada nueva fuente de Findings debe proporcionar una ubicación real, severidad, categoría, origen, confianza y evidencia reproducible. Los nuevos Candidates del Agent deben permanecer separados de los Findings finales hasta que termine la verificación.
-
-## Alcance actual y hoja de ruta
-
-Completado:
-
-- Pipeline determinista de analizadores de Go.
-- Motor de contexto del repositorio.
-- Bucle de razonamiento DeepSeek acotado.
-- Verifier V2 con evidencias semánticas y Needs Review explícito.
-- Eval Harness de replay y Golden Regression Corpus reproducible de 50 casos.
-- Contexto de intención del PR y reglas del repositorio.
-- Workflow completo con go test, go vet, staticcheck y gosec.
-- Informe HTML de evidencias autocontenido.
-- Trigger de GitHub Actions, Annotations, Artifact y Merge Gate.
-
-Siguiente:
-
-- Añadir evaluaciones independientes del Pipeline real, ensayos repetidos, varianza e intervalos de confianza, separados de las métricas Golden Replay.
-- Añadir comparación de modelos Live, repeticiones e intervalos de confianza.
-- Empaquetado como GitHub Action reutilizable y distribución de Releases.
-- Proveedores de modelos adicionales y Observability para producción.
-
-## Licencia
-
-[MIT](LICENSE)
+[Licencia MIT](LICENSE).

@@ -82,6 +82,8 @@ jobs:
         id: toolchain
         shell: bash
         run: |
+          # Preserve the legacy capability-by-capability output behavior during migration.
+          # shellcheck disable=SC2129
           if "$GITHUB_WORKSPACE/bin/aegis" github --help >/dev/null 2>&1; then
             echo "publisher=$GITHUB_WORKSPACE/bin/aegis" >> "$GITHUB_OUTPUT"
             echo "secure_reasoning=true" >> "$GITHUB_OUTPUT"

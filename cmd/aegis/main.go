@@ -24,10 +24,9 @@ import (
 	"github.com/Molly166/AegisCodeAgent/internal/verifier"
 )
 
-const (
-	version            = "0.7.0"
-	maxReviewJSONBytes = 32 * 1024 * 1024
-)
+var version = "1.0.0-dev"
+
+const maxReviewJSONBytes = 32 * 1024 * 1024
 
 func main() {
 	os.Exit(run(context.Background(), os.Args[1:], os.Stdout, os.Stderr))
@@ -46,6 +45,8 @@ func run(ctx context.Context, arguments []string, stdout, stderr io.Writer) int 
 		return runGitHub(arguments[1:], stdout, stderr)
 	case "eval":
 		return runEval(arguments[1:], stdout, stderr)
+	case "eval-live":
+		return runEvalLive(ctx, arguments[1:], stdout, stderr)
 	case "version", "--version", "-version":
 		fmt.Fprintf(stdout, "aegis %s\n", version)
 		return 0
@@ -130,6 +131,9 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 	failOnIncomplete := flags.Bool("fail-on-incomplete", true, "fail the merge gate when a requested review stage is partial or failed")
 	maxAnnotations := flags.Int("max-annotations", githubreport.DefaultMaxAnnotations, "maximum line annotations emitted per run")
 	artifactName := flags.String("artifact-name", "aegis-review-report", "artifact name referenced by the GitHub summary")
+	expectedBase := flags.String("expected-base", "", "reject evidence not bound to this exact base commit SHA")
+	expectedHead := flags.String("expected-head", "", "reject evidence not bound to this exact head commit SHA")
+	requireAgent := flags.Bool("require-agent", false, "block unless the reasoning stage completed or was explicitly skipped for non-source changes")
 	flags.Usage = func() { writeGitHubUsage(stderr, flags) }
 	if err := flags.Parse(arguments); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -165,9 +169,13 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 1
 	}
+	if err := validateReportIdentity(reviewReport, *expectedBase, *expectedHead); err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 1
+	}
 	reportOptions := githubreport.Options{
 		FailOn: failOn, FailOnNeedsReview: failOnNeedsReview,
-		FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName,
+		FailOnIncomplete: *failOnIncomplete, ArtifactName: *artifactName, RequireAgent: *requireAgent,
 	}
 	htmlReport, err := report.RenderHTMLWithOptions(reviewReport, reportOptions)
 	if err != nil {
@@ -209,7 +217,33 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		fmt.Fprintf(stderr, "aegis: %v\n", configErr)
 		return 2
 	}
-	agentDefaults, defaultsErr := reviewAgentDefaults(fileConfig.Agent)
+	providerConfiguration := fileConfig.Agent
+	selectedProvider, providerOverride, providerErr := argumentValue(arguments, "agent-provider", providerConfiguration.Provider)
+	if providerErr != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", providerErr)
+		return 2
+	}
+	if providerOverride && !strings.EqualFold(selectedProvider, providerConfiguration.Provider) {
+		// Endpoint, credentials and model capabilities belong to one provider.
+		// A CLI switch must not silently send the old provider's key elsewhere.
+		providerConfiguration.Model, providerConfiguration.BaseURL, providerConfiguration.APIKeyEnv = "", "", ""
+		providerConfiguration.Thinking, providerConfiguration.Capabilities = nil, nil
+		providerConfiguration.ReasoningEffort = ""
+	}
+	providerConfiguration.Provider = selectedProvider
+	selectedModel, modelOverride, modelErr := argumentValue(arguments, "agent-model", providerConfiguration.Model)
+	if modelErr != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", modelErr)
+		return 2
+	}
+	if modelOverride && strings.TrimSpace(selectedModel) != strings.TrimSpace(providerConfiguration.Model) {
+		// Capability overrides describe the model named in the config. A model
+		// switch uses the new model's preset, never the previous model's protocol.
+		providerConfiguration.Thinking, providerConfiguration.Capabilities = nil, nil
+		providerConfiguration.ReasoningEffort = ""
+	}
+	providerConfiguration.Model = selectedModel
+	agentDefaults, defaultsErr := reviewAgentDefaults(providerConfiguration)
 	if defaultsErr != nil {
 		fmt.Fprintf(stderr, "aegis: %v\n", defaultsErr)
 		return 2
@@ -234,6 +268,9 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	analysisScope := flags.String("analysis-scope", analyzer.ScopeChanged, "package scope: changed or all")
 	changedLinesOnly := flags.Bool("changed-lines-only", true, "publish static diagnostics only on added lines")
 	analyzerTimeout := flags.Duration("analyzer-timeout", 2*time.Minute, "maximum time for each analyzer")
+	sandboxMode := flags.String("sandbox", "host", "analysis tool execution: host (trusted local code) or docker (untrusted PRs)")
+	sandboxImage := flags.String("sandbox-image", "aegis-analysis:local", "prebuilt trusted Docker analysis image; never pulled implicitly")
+	sandboxModules := flags.String("sandbox-modcache", "", "prefetched Go module cache mounted read-only in the sandbox")
 	allowDirtyAnalysis := flags.Bool("allow-dirty-analysis", false, "allow analyzers to run on a dirty or mismatched worktree")
 	contextEngine := flags.Bool("repo-context", true, "build repository context for changed Go symbols")
 	contextScope := flags.String("context-scope", analyzer.ScopeAll, "repository context scope: changed or all")
@@ -242,11 +279,14 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	contextIntentMaxBytes := flags.Int("context-intent-max-bytes", 24*1024, "maximum PR intent and repository-guidance payload size")
 	githubEventPath := flags.String("github-event", os.Getenv("GITHUB_EVENT_PATH"), "path to a GitHub event JSON file used to extract pull-request intent")
 	contextTimeout := flags.Duration("context-timeout", time.Minute, "maximum time for repository context indexing")
-	agentProviderName := flags.String("agent-provider", agentDefaults.Provider, "reasoning agent provider: none or deepseek")
+	agentProviderName := flags.String("agent-provider", agentDefaults.Provider, "reasoning agent provider: none, deepseek, orcarouter, or openai-compatible")
 	agentModel := flags.String("agent-model", agentDefaults.Model, "reasoning model name")
 	agentBaseURL := flags.String("agent-base-url", agentDefaults.BaseURL, "provider API base URL (HTTPS required)")
 	agentAPIKeyEnv := flags.String("agent-api-key-env", agentDefaults.APIKeyEnv, "environment variable containing the provider API key")
 	agentAllowCustomEndpoint := flags.Bool("agent-allow-custom-endpoint", false, "allow sending code and the API key to a non-official provider endpoint")
+	agentNoDotEnv := flags.Bool("agent-no-dotenv", false, "read model credentials from process environment only; recommended for CI")
+	agentRequestTimeout := flags.Duration("agent-request-timeout", agentDefaults.RequestTimeout, "maximum duration of one model completion including retry attempts and backoff")
+	agentMaxRetries := flags.Int("agent-max-retries", agentDefaults.MaxRetries, "maximum retries after retryable HTTP errors (0 disables retries)")
 	agentThinking := flags.Bool("agent-thinking", agentDefaults.Thinking, "enable model thinking mode")
 	agentReasoningEffort := flags.String("agent-reasoning-effort", agentDefaults.ReasoningEffort, "thinking effort: low, medium, high, xhigh, or max")
 	agentTimeout := flags.Duration("agent-timeout", agentDefaults.Timeout, "maximum time for the complete reasoning loop")
@@ -294,6 +334,10 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 2
 	}
+	if *agentRequestTimeout < time.Millisecond || *agentRequestTimeout > 10*time.Minute || *agentMaxRetries < 0 || *agentMaxRetries > 5 {
+		fmt.Fprintln(stderr, "aegis: request timeout must be between 1ms and 10m; max retries must be between 0 and 5")
+		return 2
+	}
 	agentConfiguration, err := agent.NormalizeConfig(agent.Config{
 		Repository: *repository, Model: *agentModel, Thinking: *agentThinking,
 		ReasoningEffort: *agentReasoningEffort, MaxSteps: *agentMaxSteps,
@@ -312,32 +356,29 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 		fmt.Fprintln(stderr, "aegis: verifier-timeout and verifier-analyzer-timeout must be positive")
 		return 2
 	}
-	var reasoningProvider agent.Provider
-	if strings.EqualFold(*agentProviderName, agent.ProviderDeepSeek) {
-		if *agentAPIKeyEnv != "DEEPSEEK_API_KEY" {
-			fmt.Fprintln(stderr, "aegis: DeepSeek provider only accepts DEEPSEEK_API_KEY as its credential variable")
+	var toolRunner analyzer.Runner = analyzer.OSRunner{MaxOutputBytes: 16 * 1024 * 1024}
+	switch *sandboxMode {
+	case "host":
+	case "docker":
+		sandbox, sandboxErr := analyzer.NewDockerRunner(*repository, *sandboxImage, *sandboxModules)
+		if sandboxErr != nil {
+			fmt.Fprintf(stderr, "aegis: %v\n", sandboxErr)
 			return 2
 		}
-		dotEnvPath := filepath.Join(*repository, ".env")
-		if *configurationPath != "" {
-			dotEnvPath = filepath.Join(filepath.Dir(*configurationPath), ".env")
-		}
-		apiKey, keyErr := appconfig.APIKey(dotEnvPath, *agentAPIKeyEnv)
-		if keyErr != nil {
-			fmt.Fprintf(stderr, "aegis: %v\n", keyErr)
-			return 2
-		}
-		if apiKey == "" {
-			fmt.Fprintf(stderr, "aegis: DeepSeek API key is missing; set %s or add it to %s\n", *agentAPIKeyEnv, dotEnvPath)
-			return 2
-		}
-		reasoningProvider, err = agent.NewDeepSeekProvider(agent.DeepSeekConfig{
-			APIKey: apiKey, BaseURL: *agentBaseURL, AllowCustomEndpoint: *agentAllowCustomEndpoint,
-		})
-		if err != nil {
-			fmt.Fprintf(stderr, "aegis: configure DeepSeek provider: %v\n", err)
-			return 2
-		}
+		defer sandbox.Close()
+		toolRunner = sandbox
+	default:
+		fmt.Fprintln(stderr, "aegis: sandbox must be host or docker")
+		return 2
+	}
+	reasoningProvider, err := configureReasoningProvider(*repository, *configurationPath, agent.ProviderConfig{
+		Name: *agentProviderName, Model: *agentModel, BaseURL: *agentBaseURL,
+		AllowCustomEndpoint: *agentAllowCustomEndpoint, RequestTimeout: *agentRequestTimeout,
+		MaxRetries: agentMaxRetries, Capabilities: configuredCapabilities(providerConfiguration.Capabilities),
+	}, *agentAPIKeyEnv, !*agentNoDotEnv)
+	if err != nil {
+		fmt.Fprintf(stderr, "aegis: %v\n", err)
+		return 2
 	}
 
 	client := gitdiff.NewClient(*timeout)
@@ -373,7 +414,7 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 			fmt.Fprintf(stderr, "aegis: select analysis packages: %v\n", err)
 			return 1
 		}
-		pipeline := analyzer.NewDefaultPipeline(analyzer.OSRunner{})
+		pipeline := analyzer.NewDefaultPipeline(toolRunner)
 		analysisOutput, err := pipeline.Run(ctx, analyzer.Input{
 			Repository:   result.Repository,
 			Packages:     packages,
@@ -399,7 +440,7 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 			}
 		}
 		indexContext, cancel := context.WithTimeout(ctx, *contextTimeout)
-		contextBundle, contextErr := repocontext.NewBuilder(analyzer.OSRunner{MaxOutputBytes: 16 * 1024 * 1024}).Build(indexContext, repocontext.Input{
+		contextBundle, contextErr := repocontext.NewBuilder(toolRunner).Build(indexContext, repocontext.Input{
 			Repository:      result.Repository,
 			Packages:        contextPackages,
 			Files:           result.Files,
@@ -439,7 +480,7 @@ func runReview(ctx context.Context, arguments []string, stdout, stderr io.Writer
 	var verificationErr error
 	if *verifyAgentCandidates {
 		verificationContext, cancel := context.WithTimeout(ctx, *verifierTimeout)
-		verificationOutput, verifyErr := verifier.New(analyzer.NewDefaultPipeline(analyzer.OSRunner{})).Run(verificationContext, verifier.Config{
+		verificationOutput, verifyErr := verifier.New(analyzer.NewDefaultPipeline(toolRunner)).Run(verificationContext, verifier.Config{
 			Repository: result.Repository, AnalyzerTimeout: *verifierAnalyzerTimeout, AnalyzerNames: selectedAnalyzers,
 		}, verifier.Input{
 			Files: result.Files, Findings: reviewReport.Findings, Agent: reviewReport.Agent,
@@ -502,6 +543,8 @@ type agentFlagDefaults struct {
 	MaxCandidates   int
 	MaxInputBytes   int
 	MaxOutputTokens int
+	RequestTimeout  time.Duration
+	MaxRetries      int
 }
 
 type verifierFlagDefaults struct {
@@ -533,11 +576,24 @@ func reviewVerifierDefaults(configuration appconfig.VerifierConfig) (verifierFla
 }
 
 func reviewAgentDefaults(configuration appconfig.AgentConfig) (agentFlagDefaults, error) {
+	provider := configuration.Provider
+	if provider == "" {
+		provider = agent.ProviderNone
+	}
+	settings := agent.DefaultProviderSettings(provider)
+	requestTimeout, err := providerRequestTimeout(configuration.RequestTimeout)
+	if err != nil {
+		return agentFlagDefaults{}, err
+	}
 	defaults := agentFlagDefaults{
-		Provider: agent.ProviderNone, Model: agent.DefaultModel, BaseURL: agent.DefaultDeepSeekBaseURL,
-		APIKeyEnv: "DEEPSEEK_API_KEY", Thinking: true, ReasoningEffort: "high",
+		Provider: provider, Model: settings.Model, BaseURL: settings.BaseURL,
+		APIKeyEnv: settings.APIKeyEnv, Thinking: settings.Thinking, ReasoningEffort: "high",
 		Timeout: 3 * time.Minute, MaxSteps: 6, MaxCandidates: 12,
 		MaxInputBytes: 96 * 1024, MaxOutputTokens: 8192,
+		RequestTimeout: requestTimeout, MaxRetries: 2,
+	}
+	if configuration.MaxRetries != nil {
+		defaults.MaxRetries = *configuration.MaxRetries
 	}
 	if configuration.Provider != "" {
 		defaults.Provider = configuration.Provider
@@ -629,7 +685,7 @@ func writeOutput(path string, content []byte, stdout io.Writer) error {
 		return err
 	}
 	cleanPath := filepath.Clean(path)
-	if err := os.WriteFile(cleanPath, content, 0o644); err != nil {
+	if err := os.WriteFile(cleanPath, content, 0o600); err != nil {
 		return fmt.Errorf("write report to %q: %w", cleanPath, err)
 	}
 	return nil
@@ -637,7 +693,7 @@ func writeOutput(path string, content []byte, stdout io.Writer) error {
 
 func appendOutput(path string, content []byte) error {
 	cleanPath := filepath.Clean(path)
-	file, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	file, err := os.OpenFile(cleanPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
 		return fmt.Errorf("open GitHub summary %q: %w", cleanPath, err)
 	}
@@ -677,6 +733,9 @@ func loadJSONReport(path string) (review.ReviewReport, error) {
 	if err := review.UpgradeReport(&result); err != nil {
 		return review.ReviewReport{}, fmt.Errorf("JSON report: %w", err)
 	}
+	if err := review.ValidateReportDomain(result); err != nil {
+		return review.ReviewReport{}, fmt.Errorf("JSON report: %w", err)
+	}
 	return result, nil
 }
 
@@ -687,6 +746,7 @@ func writeRootUsage(output io.Writer) {
 	fmt.Fprintln(output, "  aegis review [flags]")
 	fmt.Fprintln(output, "  aegis github [flags]")
 	fmt.Fprintln(output, "  aegis eval [flags]")
+	fmt.Fprintln(output, "  aegis eval-live [flags]")
 	fmt.Fprintln(output, "  aegis version")
 	fmt.Fprintln(output)
 	fmt.Fprintln(output, "Run 'aegis <command> --help' for command flags.")

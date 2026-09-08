@@ -21,6 +21,10 @@ const (
 var defaultNames = []string{NameGoTest, NameGoVet}
 var allNames = []string{NameGoTest, NameGoVet, NameStaticcheck, NameGosec}
 
+// ErrOutputTruncated means the captured diagnostics are incomplete. Successful
+// process exit and an earlier low-priority finding cannot waive this failure.
+var ErrOutputTruncated = errors.New("analyzer output exceeded its capture limit; diagnostics are incomplete")
+
 type Input struct {
 	Repository   string
 	Packages     []string
@@ -44,6 +48,13 @@ type Execution struct {
 	ExitCode  int
 	Duration  time.Duration
 	Truncated bool
+}
+
+func executionError(execution Execution, err error) error {
+	if execution.Truncated && !errors.Is(err, ErrOutputTruncated) {
+		return errors.Join(ErrOutputTruncated, err)
+	}
+	return err
 }
 
 func (e Execution) CombinedOutput() string {

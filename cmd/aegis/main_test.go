@@ -162,7 +162,7 @@ func TestLoadJSONReportRejectsUnknownSchemaAndTrailingData(t *testing.T) {
 
 func TestLoadJSONReportSafelyMigratesV5(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "review.json")
-	writeCLITestFile(t, path, `{"schema_version":"v5","verification":{"summary":{"candidates":1,"inconclusive":1},"candidates":[{"severity":"critical","verdict":"inconclusive"}]}}`)
+	writeCLITestFile(t, path, `{"schema_version":"v5","analysis":{"status":"scope_only"},"context":{"status":"not_run"},"agent":{"status":"not_run"},"verification":{"status":"complete","summary":{"candidates":1,"inconclusive":1},"candidates":[{"severity":"critical","verdict":"inconclusive"}]}}`)
 	report, err := loadJSONReport(path)
 	if err != nil {
 		t.Fatal(err)

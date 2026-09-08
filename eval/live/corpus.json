@@ -1,0 +1,297 @@
+{
+  "schema_version": "live-v1",
+  "description": "12 independently labeled executable synthetic Go PRs: 8 bug and 4 clean. All sources are local literals; no external repository, dependency or actual dangerous operation is required. Defaults are a deterministic no-model baseline; live model runs are explicitly enabled.",
+  "cases": [
+    {
+      "id": "LIVE-001",
+      "title": "Credential isolation regression",
+      "description": "A provider credential is appended after child environment sanitization, allowing repository tests to read it. The helper is defined but never executed by the fixture tests.",
+      "kind": "bug",
+      "base": {
+        "child.go": "package fixture\n\nimport (\"os\"; \"os/exec\")\nfunc ForUntrustedChild(_ []string) []string { return []string{\"PATH=/usr/bin\"} }\nfunc Child() *exec.Cmd {\n c := exec.Command(\"go\", \"test\", \"./...\")\n c.Env = ForUntrustedChild(os.Environ())\n return c\n}\n"
+      },
+      "head": {
+        "child.go": "package fixture\n\nimport (\"os\"; \"os/exec\")\nfunc ForUntrustedChild(_ []string) []string { return []string{\"PATH=/usr/bin\"} }\nfunc Child() *exec.Cmd {\n c := exec.Command(\"go\", \"test\", \"./...\")\n c.Env = append(ForUntrustedChild(os.Environ()), \"MODEL_KEY=\"+os.Getenv(\"DEEPSEEK_API_KEY\"))\n return c\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "credential-child",
+          "priority": "p0",
+          "category": "security",
+          "path": "child.go",
+          "start_line": 7,
+          "end_line": 7,
+          "evidence_terms_any": [
+            "credential",
+            "secret",
+            "凭证",
+            "密钥"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-002",
+      "title": "SQL query interpolation",
+      "description": "An untrusted HTTP-supplied user name is concatenated into a SQL statement instead of bound as a parameter. No real database is connected.",
+      "kind": "bug",
+      "base": {
+        "query.go": "package fixture\n\nimport \"database/sql\"\nfunc Lookup(db *sql.DB, name string) (*sql.Rows, error) {\n return db.Query(\"SELECT id FROM users WHERE name = ?\", name)\n}\n"
+      },
+      "head": {
+        "query.go": "package fixture\n\nimport \"database/sql\"\nfunc Lookup(db *sql.DB, name string) (*sql.Rows, error) {\n return db.Query(\"SELECT id FROM users WHERE name = '\"+name+\"'\")\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "sql-injection",
+          "priority": "p1",
+          "category": "security",
+          "path": "query.go",
+          "start_line": 5,
+          "end_line": 5,
+          "evidence_terms_any": [
+            "sql",
+            "injection",
+            "注入"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-003",
+      "title": "Shell command injection",
+      "description": "A search term reaches sh -c rather than a positional argument; shell metacharacters become executable. The function only constructs a command and is never run.",
+      "kind": "bug",
+      "base": {
+        "command.go": "package fixture\n\nimport \"os/exec\"\nfunc Search(term string) *exec.Cmd {\n return exec.Command(\"grep\", \"--\", term, \"records.txt\")\n}\n"
+      },
+      "head": {
+        "command.go": "package fixture\n\nimport \"os/exec\"\nfunc Search(term string) *exec.Cmd {\n return exec.Command(\"sh\", \"-c\", \"grep \"+term+\" records.txt\")\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "shell-injection",
+          "priority": "p1",
+          "category": "security",
+          "path": "command.go",
+          "start_line": 5,
+          "end_line": 5,
+          "evidence_terms_any": [
+            "command",
+            "shell",
+            "注入"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-004",
+      "title": "Relative path escape",
+      "description": "The lexical parent-directory and absolute-path checks are removed. A ../../ input can read outside the selected root; these tiny fixtures do not model symlinks.",
+      "kind": "bug",
+      "base": {
+        "files.go": "package fixture\n\nimport (\"fmt\"; \"os\"; \"path/filepath\"; \"strings\")\nfunc Read(root, name string) ([]byte, error) {\n clean := filepath.Clean(name)\n if filepath.IsAbs(clean) || clean == \"..\" || strings.HasPrefix(clean, \"..\"+string(filepath.Separator)) { return nil, fmt.Errorf(\"invalid relative path\") }\n return os.ReadFile(filepath.Join(root, clean))\n}\n"
+      },
+      "head": {
+        "files.go": "package fixture\n\nimport (\"os\"; \"path/filepath\")\nfunc Read(root, name string) ([]byte, error) {\n return os.ReadFile(filepath.Join(root, name))\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "path-traversal",
+          "priority": "p1",
+          "category": "security",
+          "path": "files.go",
+          "start_line": 5,
+          "end_line": 5,
+          "evidence_terms_any": [
+            "traversal",
+            "directory",
+            "path",
+            "目录",
+            "路径"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-005",
+      "title": "Cross-file authorization bypass",
+      "description": "Owns in policy.go enforces a record ownership boundary. Removing its use from ReadSecret lets one authenticated user read another user's secret.",
+      "kind": "bug",
+      "base": {
+        "policy.go": "package fixture\n\nfunc Owns(actorID, ownerID int) bool { return actorID == ownerID }\n",
+        "handler.go": "package fixture\n\nimport \"fmt\"\ntype Record struct { OwnerID int; Secret string }\nfunc ReadSecret(actorID int, record Record) (string, error) {\n if !Owns(actorID, record.OwnerID) { return \"\", fmt.Errorf(\"forbidden\") }\n return record.Secret, nil\n}\n"
+      },
+      "head": {
+        "handler.go": "package fixture\n\ntype Record struct { OwnerID int; Secret string }\nfunc ReadSecret(actorID int, record Record) (string, error) {\n return record.Secret, nil\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "authorization",
+          "priority": "p1",
+          "category": "security",
+          "path": "handler.go",
+          "start_line": 4,
+          "end_line": 5,
+          "evidence_terms_any": [
+            "authorization",
+            "ownership",
+            "access",
+            "越权",
+            "鉴权",
+            "权限"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-006",
+      "title": "TLS server verification disabled",
+      "description": "An outbound TLS configuration bypasses certificate verification, enabling interception by an untrusted endpoint. No network call executes.",
+      "kind": "bug",
+      "base": {
+        "tls.go": "package fixture\n\nimport \"crypto/tls\"\nfunc TLSConfig() *tls.Config {\n return &tls.Config{MinVersion: tls.VersionTLS12}\n}\n"
+      },
+      "head": {
+        "tls.go": "package fixture\n\nimport \"crypto/tls\"\nfunc TLSConfig() *tls.Config {\n return &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: true}\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "tls-verification",
+          "priority": "p1",
+          "category": "security",
+          "path": "tls.go",
+          "start_line": 5,
+          "end_line": 5,
+          "evidence_terms_any": [
+            "tls",
+            "certificate",
+            "证书"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-007",
+      "title": "Nil input contract regression",
+      "description": "Value explicitly accepts nil in the base revision. Removing its guard introduces a panic for a previously valid input; the model must connect the deleted guard to the dereference.",
+      "kind": "bug",
+      "base": {
+        "value.go": "package fixture\n\nfunc Value(p *int) int {\n if p == nil { return 0 }\n return *p\n}\n"
+      },
+      "head": {
+        "value.go": "package fixture\n\nfunc Value(p *int) int {\n return *p\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "nil-dereference",
+          "priority": "p1",
+          "category": "bug",
+          "path": "value.go",
+          "start_line": 4,
+          "end_line": 4,
+          "evidence_terms_any": [
+            "nil",
+            "panic",
+            "空指针"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-008",
+      "title": "Executable arithmetic regression",
+      "description": "The head subtracts instead of adding. An updated regression test deterministically fails; base tests pass before the review starts.",
+      "kind": "bug",
+      "base": {
+        "math.go": "package fixture\nfunc Add(a, b int) int { return a + b }\n",
+        "math_test.go": "package fixture\nimport \"testing\"\nfunc TestAdd(t *testing.T) {\n if Add(1, 1) != 2 { t.Fatal(\"addition regression\") }\n}\n"
+      },
+      "head": {
+        "math.go": "package fixture\nfunc Add(a, b int) int { return a - b }\n",
+        "math_test.go": "package fixture\nimport \"testing\"\nfunc TestAdd(t *testing.T) {\n if Add(2, 2) != 4 { t.Fatal(\"addition regression\") }\n}\n"
+      },
+      "expected_gate": "blocked",
+      "expected_findings": [
+        {
+          "id": "failing-test",
+          "priority": "p1",
+          "category": "testing",
+          "path": "math_test.go",
+          "start_line": 4,
+          "end_line": 4,
+          "evidence_terms_any": [
+            "regression",
+            "test",
+            "测试"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "LIVE-009",
+      "title": "Parameterized SQL negative control",
+      "description": "Add another selected column while preserving SQL parameter binding. The input remains a separate argument, not executable SQL.",
+      "kind": "clean",
+      "base": {
+        "query.go": "package fixture\n\nimport \"database/sql\"\nfunc Lookup(db *sql.DB, name string) (*sql.Rows, error) {\n return db.Query(\"SELECT id FROM users WHERE name = ?\", name)\n}\n"
+      },
+      "head": {
+        "query.go": "package fixture\n\nimport \"database/sql\"\nfunc Lookup(db *sql.DB, name string) (*sql.Rows, error) {\n return db.Query(\"SELECT id, name FROM users WHERE name = ?\", name)\n}\n"
+      },
+      "expected_gate": "passed",
+      "expected_findings": []
+    },
+    {
+      "id": "LIVE-010",
+      "title": "Authorization negative control",
+      "description": "Improve the forbidden message while retaining the cross-file ownership check and access boundary.",
+      "kind": "clean",
+      "base": {
+        "policy.go": "package fixture\n\nfunc Owns(actorID, ownerID int) bool { return actorID == ownerID }\n",
+        "handler.go": "package fixture\n\nimport \"fmt\"\ntype Record struct { OwnerID int; Secret string }\nfunc ReadSecret(actorID int, record Record) (string, error) {\n if !Owns(actorID, record.OwnerID) { return \"\", fmt.Errorf(\"forbidden\") }\n return record.Secret, nil\n}\n"
+      },
+      "head": {
+        "handler.go": "package fixture\n\nimport \"fmt\"\ntype Record struct { OwnerID int; Secret string }\nfunc ReadSecret(actorID int, record Record) (string, error) {\n if !Owns(actorID, record.OwnerID) { return \"\", fmt.Errorf(\"record access forbidden\") }\n return record.Secret, nil\n}\n"
+      },
+      "expected_gate": "passed",
+      "expected_findings": []
+    },
+    {
+      "id": "LIVE-011",
+      "title": "Documentation negative control",
+      "description": "Change only README text in a tiny compilable Go module.",
+      "kind": "clean",
+      "base": {
+        "doc.go": "package fixture\n",
+        "README.md": "# Example\n\nA small API.\n"
+      },
+      "head": {
+        "README.md": "# Example API\n\nA small API with explicit ownership checks.\n"
+      },
+      "expected_gate": "passed",
+      "expected_findings": []
+    },
+    {
+      "id": "LIVE-012",
+      "title": "Sanitized child environment negative control",
+      "description": "Append a fixed non-sensitive test flag after sanitization; no credential is forwarded into the child.",
+      "kind": "clean",
+      "base": {
+        "child.go": "package fixture\n\nimport (\"os\"; \"os/exec\")\nfunc ForUntrustedChild(_ []string) []string { return []string{\"PATH=/usr/bin\"} }\nfunc Child() *exec.Cmd {\n c := exec.Command(\"go\", \"test\", \"./...\")\n c.Env = ForUntrustedChild(os.Environ())\n return c\n}\n"
+      },
+      "head": {
+        "child.go": "package fixture\n\nimport (\"os\"; \"os/exec\")\nfunc ForUntrustedChild(_ []string) []string { return []string{\"PATH=/usr/bin\"} }\nfunc Child() *exec.Cmd {\n c := exec.Command(\"go\", \"test\", \"./...\")\n c.Env = append(ForUntrustedChild(os.Environ()), \"AEGIS_FIXTURE=1\")\n return c\n}\n"
+      },
+      "expected_gate": "passed",
+      "expected_findings": []
+    }
+  ]
+}

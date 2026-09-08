@@ -11,21 +11,38 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
-        uses: actions/setup-go@v7
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
-          cache: true
+          go-version: '1.26.6'
+          cache: false
+
+      - name: Validate workflow syntax and shell commands
+        run: bash scripts/check-workflows.sh
+
+      - name: Test evidence publishing and PR feedback boundaries
+        run: node --test scripts/*.test.cjs
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
 
       - name: Run vet
         run: go vet ./...
+
+      - name: Run pinned Staticcheck
+        run: go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 ./...
+
+      - name: Check high-severity security diagnostics
+        # P2/P3 remain advisory in PR review; this source-quality check gates
+        # only high-severity Gosec diagnostics, with reviewed local suppressions.
+        run: go run github.com/securego/gosec/v2/cmd/gosec@v2.28.0 -quiet -severity high ./...
 
       - name: Run tests with race detector
         run: go test -race -coverprofile=coverage.out ./...
@@ -40,3 +57,60 @@ jobs:
 
       - name: Build CLI
         run: go build -trimpath -o /tmp/aegis ./cmd/aegis
+
+  live-eval:
+    name: Offline executable pipeline health (not model accuracy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Build the actual reviewer used by every fixture
+        run: |
+          mkdir -p bin artifacts
+          go build -trimpath -o bin/aegis ./cmd/aegis
+      - name: Review all 12 synthetic Git fixtures through the real pipeline
+        # strict=false preserves genuine baseline misses for measurement. It
+        # does not certify detection quality. The next step gates run health.
+        run: |
+          bin/aegis eval-live --corpus eval/live --aegis-binary ./bin/aegis \
+            --agent-provider none --analyzers default --repeats 1 --strict=false \
+            --format json --output artifacts/eval-live.json
+      - name: Require complete executions without external model calls
+        run: node scripts/check-offline-eval.cjs artifacts/eval-live.json
+      - name: Retain measured findings, misses and exact review evidence
+        if: ${{ always() && hashFiles('artifacts/eval-live.json') != '' }}
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: aegis-offline-live-eval-${{ github.run_attempt }}
+          path: artifacts/eval-live.json
+          if-no-files-found: error
+          retention-days: 14
+
+  sandbox:
+    name: Docker isolation integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Build pinned analysis sandbox
+        run: docker build --tag aegis-analysis:local --file scripts/analysis.Dockerfile scripts
+      - name: Exercise malicious test fixtures behind the container boundary
+        env:
+          AEGIS_DOCKER_TEST_IMAGE: aegis-analysis:local
+        run: go test ./internal/analyzer -run TestDockerIntegration -count=1 -v

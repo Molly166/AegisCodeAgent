@@ -14,17 +14,40 @@ const (
 // Candidates are deliberately kept separate from verified findings so an LLM
 // response cannot change the final risk verdict before the verifier runs.
 type AgentRun struct {
-	Status         AgentStatus          `json:"status"`
-	Provider       string               `json:"provider,omitempty"`
-	Model          string               `json:"model,omitempty"`
-	Thinking       bool                 `json:"thinking"`
-	Steps          int                  `json:"steps"`
-	DurationMillis int64                `json:"duration_ms"`
-	Summary        string               `json:"summary,omitempty"`
-	Usage          AgentUsage           `json:"usage"`
-	Candidates     []CandidateFinding   `json:"candidates"`
-	ToolCalls      []AgentToolExecution `json:"tool_calls"`
-	Warnings       []string             `json:"warnings"`
+	Status         AgentStatus            `json:"status"`
+	Provider       string                 `json:"provider,omitempty"`
+	Model          string                 `json:"model,omitempty"`
+	RequestedModel string                 `json:"requested_model,omitempty"`
+	Thinking       bool                   `json:"thinking"`
+	Steps          int                    `json:"steps"`
+	DurationMillis int64                  `json:"duration_ms"`
+	Summary        string                 `json:"summary,omitempty"`
+	Usage          AgentUsage             `json:"usage"`
+	Candidates     []CandidateFinding     `json:"candidates"`
+	ToolCalls      []AgentToolExecution   `json:"tool_calls"`
+	Warnings       []string               `json:"warnings"`
+	Completions    []AgentCompletionTrace `json:"completions,omitempty"`
+}
+
+// CompletionMetadata contains only bounded operational metadata, never prompts,
+// API credentials, response bodies, or private model reasoning. ResolvedModel is
+// what the provider reports; an empty value means it could not be determined.
+type CompletionMetadata struct {
+	Provider       string `json:"provider"`
+	RequestedModel string `json:"requested_model"`
+	ResolvedModel  string `json:"resolved_model,omitempty"`
+	RequestID      string `json:"request_id,omitempty"`
+	FallbackModel  string `json:"fallback_model,omitempty"`
+	FallbackLevel  int    `json:"fallback_level,omitempty"`
+	Attempts       int    `json:"attempts"`
+	DurationMillis int64  `json:"duration_ms"`
+	HTTPStatus     int    `json:"http_status,omitempty"`
+	ErrorKind      string `json:"error_kind,omitempty"`
+}
+
+type AgentCompletionTrace struct {
+	Step int `json:"step"`
+	CompletionMetadata
 }
 
 type AgentUsage struct {

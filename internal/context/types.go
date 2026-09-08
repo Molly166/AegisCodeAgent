@@ -90,7 +90,16 @@ func newExportImporter(fset *token.FileSet, exports map[string]string) types.Imp
 	}
 }
 
-func (i *exportImporter) Import(path string) (*types.Package, error) {
+func (i *exportImporter) Import(path string) (pkg *types.Package, err error) {
+	// Export data from a newer or incompatible Go compiler may panic inside
+	// go/importer. Preserve AST context and report reduced type coverage instead
+	// of losing the entire review and its evidence report.
+	defer func() {
+		if recover() != nil {
+			pkg = nil
+			err = fmt.Errorf("incompatible Go export data for %s; align reviewer and analyzer toolchains", path)
+		}
+	}()
 	if i.exports[path] != "" {
 		if imported, err := i.compiler.Import(path); err == nil {
 			return imported, nil

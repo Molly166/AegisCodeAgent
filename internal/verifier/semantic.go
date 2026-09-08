@@ -131,7 +131,7 @@ func resolveSemanticSource(repository, path string) (string, error) {
 		return "", err
 	}
 	relative, err := filepath.Rel(repository, resolved)
-	if err != nil || !safeRelativePath(relative) {
+	if err != nil || !safeRelativePath(relative) || !allowedSourcePath(relative) {
 		return "", fmt.Errorf("resolved path escapes the repository")
 	}
 	info, err := os.Stat(resolved)
