@@ -125,6 +125,7 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 	reportPath := flags.String("report", "review.json", "path to an Aegis JSON review report")
 	htmlOutput := flags.String("html-output", "review.html", "path for the self-contained HTML evidence report")
 	summaryPath := flags.String("summary", os.Getenv("GITHUB_STEP_SUMMARY"), "path to the GitHub step summary file")
+	gateOutput := flags.String("gate-output", "", "optional machine-readable gate decision for trusted report delivery")
 	annotations := flags.Bool("annotations", true, "emit GitHub workflow annotations to stdout")
 	failOnValue := flags.String("fail-on", "p1", "merge gate threshold: p0, p1, p2, p3, or none")
 	failOnNeedsReviewValue := flags.String("fail-on-needs-review", "p0", "merge gate threshold for unresolved hypotheses: p0, p1, p2, p3, or none")
@@ -190,6 +191,17 @@ func runGitHub(arguments []string, stdout, stderr io.Writer) int {
 	if err := appendOutput(*summaryPath, summary); err != nil {
 		fmt.Fprintf(stderr, "aegis: %v\n", err)
 		return 1
+	}
+	if *gateOutput != "" {
+		gateJSON, err := githubreport.RenderGateJSON(reviewReport, reportOptions)
+		if err != nil {
+			fmt.Fprintf(stderr, "aegis: encode gate decision: %v\n", err)
+			return 1
+		}
+		if err := writeOutput(*gateOutput, gateJSON, stdout); err != nil {
+			fmt.Fprintf(stderr, "aegis: %v\n", err)
+			return 1
+		}
 	}
 	if *annotations {
 		if _, err := stdout.Write(githubreport.RenderAnnotations(reviewReport, *maxAnnotations)); err != nil {

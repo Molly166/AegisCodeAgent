@@ -16,7 +16,7 @@
 - **不把不确定当作没问题：** 未确认假设进入 `Needs Review`；执行不完整、覆盖降级单独展示。
 - **门禁可配置：** 默认阻断有证据的 P0/P1 和未确认的 P0 假设；P2/P3 本身不阻断。
 - **模型可选：** 支持 DeepSeek 直连、OrcaRouter 预设及显式配置的 OpenAI-compatible 接口。无 Key 时为静态模式，设置 `require-agent: true` 才强制模型评审完成。
-- **报告可追溯：** 默认上传 HTML/JSON Artifact；公开 HTTPS 发布为独立、人工确认的可选流程，不会自动公开 PR 代码。
+- **报告可追溯：** 默认上传 HTML/JSON Artifact；维护者一次性启用公开发布后，可在评审完成时自动生成版本化 HTTPS 报告，并更新同一条 PR 评论。公开发布默认关闭。
 
 **必须在仓库 Ruleset/分支保护中，将实际显示的 Aegis merge gate 设为必需检查，GitHub 才会按该检查限制合入。** 调用方 Job 可能为检查名添加前缀。
 
@@ -139,7 +139,17 @@ go build -trimpath -o /tmp/aegis ./cmd/aegis
 
 ## 报告、发布与贡献
 
-- [报告托管](docs/report-hosting.md)：默认有访问边界的 Artifact；公开 Pages 必须人工确认，不能用于保密源码。
+### 不下载 HTML，直接打开网页
+
+公开托管**默认关闭，代码存在不代表站点已部署**。发布实现合入默认分支、Pages 设置选择 **GitHub Actions**，并设置仓库变量 `AEGIS_PUBLIC_REPORTS=true` 后，才会自动公开后续报告。`github-pages` Environment 是否逐次审批由维护者选择。发布器不会激活或替换 Review 工作流，也不要求提前激活 v1。
+
+旧版与 v1 的报告生产 Workflow 都必须匹配已审核、固定的 SHA256，v1 还需校验 publication manifest。公开托管目前仅接受直接 PR Workflow，不支持未经审核的 reusable/嵌套生产调用链。[来源限制与设置说明](docs/report-hosting.md)。
+
+评审完成并成功部署后，同一条 PR Bot 评论顶部会出现 **「🌐 查看完整网页报告」**。每份报告拥有 `reports/pr-<编号>/<完整Head>/<run-id>-<attempt>/index.html` 独立地址；经校验的 JSON 追加到 `aegis-report-history` 分支，每次重建全部历史。上限为 200 条 / 总计 64 MiB / 单条 17 MiB，满额时失败而非自动删历史。发布失败保留原 Artifact/Checks 和下载评论，不改变 Review 门禁。
+
+**仅支持公开仓库。** 代码、漏洞细节和归档 JSON 都会公开；此方案使用仓库整个 Pages 站点，已有文档站时不能直接开启覆盖。关闭变量不会撤回已公开数据。也可通过手动运行并勾选 `confirm-public` 单次补发，不必开启自动开关。HTTPS 地址以成功部署后返回的链接为准。[完整设置、权限与恢复说明](docs/report-hosting.md)。
+
+- [报告托管](docs/report-hosting.md)：一次性授权后的自动 HTTPS 历史报告及手动补发；默认仍是 Artifact，不能用于保密源码。
 - [GitHub 接入与发布包](docs/github-action.md)：六平台构建、SHA256 与完整 SHA 固定；构建产物不等于已经发布 Release。
 - [贡献指南](CONTRIBUTING.md)：测试、语料变更、安全负向用例。
 - [安全说明](SECURITY.md)：凭据、提示注入、依赖和容器限制。

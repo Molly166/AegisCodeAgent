@@ -85,7 +85,17 @@ go build -trimpath -o /tmp/aegis ./cmd/aegis
 
 現在は Go 単一モジュールを中心とし、全言語の同等解析、汎用意味証明、自動修正、私有依存の供給を保証しません。Docker は VM 相当の完全隔離ではありません。
 
-- [公開 HTTPS レポート](docs/report-hosting.md): 既定は Artifact。Pages 公開は別途手動承認し、機密コードを公開しないでください。
+### HTML をダウンロードせずに閲覧する
+
+公開ホスティングは**既定で無効**です。コードが存在しても、サイトのデプロイ完了を意味しません。公開機能を既定ブランチへマージし、Pages の Source を **GitHub Actions** に設定して、リポジトリ変数 `AEGIS_PUBLIC_REPORTS=true` を追加すると自動公開を有効にできます。`github-pages` Environment に承認者を設定した場合は各デプロイで承認を待ちます。公開機能は Review Workflow を有効化・置換せず、v1 Review の事前有効化も不要です。
+
+旧版・v1 ともに、レポート生成 Workflow は監査済みの固定 SHA256 と一致する必要があり、v1 は publication manifest も検証します。現在の公開機能は直接実行する PR Workflow のみを対象とし、未承認の reusable／入れ子の呼び出しには対応しません。[対応する生成元と設定](docs/report-hosting.md)。
+
+レビュー完了後にデプロイが成功すると、同じ PR Bot コメントの先頭に Web レポートのリンクを追加します。各レポートは `reports/pr-<number>/<full-head-sha>/<run-id>-<attempt>/index.html` の固有パスを持ち、検証済み JSON を `aegis-report-history` ブランチへ追記して、毎回履歴全体を再生成します。上限は 200 件・合計 64 MiB・1 件 17 MiB で、超過時は履歴を自動削除せず失敗します。公開の失敗は元の Artifact/Checks とコメントを残し、マージ判定を変更しません。
+
+**公開リポジトリ専用です。** コード、脆弱性の詳細、履歴 JSON が公開され、リポジトリの Pages サイト全体を使用します。既存の文書サイトを上書きする設定は避けてください。変数を無効化しても公開済みデータは消えません。自動公開を有効にせず、手動実行の `confirm-public` で 1 回の公開を承認することもできます。HTTPS URL はデプロイ成功後に返されたリンクを使用してください。[設定と安全上の注意](docs/report-hosting.md)。
+
+- [公開 HTTPS レポート](docs/report-hosting.md): 明示的な有効化後の自動履歴公開と手動再公開。既定は Artifact で、機密コードは公開しないでください。
 - [リリース候補のビルド](docs/github-action.md): 六つの OS/アーキテクチャ、SHA256。ビルドだけではタグや Release を公開しません。
 - [貢献](CONTRIBUTING.md)・[セキュリティ](SECURITY.md)・[検証記録](docs/validation.md)
 
