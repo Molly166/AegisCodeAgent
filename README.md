@@ -16,7 +16,7 @@ With the v1 workflow activated and validated, opening or updating a PR makes Aeg
 - **No false clean:** unresolved model hypotheses stay visible as `Needs Review`; incomplete or degraded coverage is identified separately.
 - **Configurable policy:** verified P0/P1 findings and unresolved P0 hypotheses block by default. P2/P3 remain visible without blocking by themselves.
 - **Optional reasoning:** DeepSeek direct, OrcaRouter preset, or an explicitly configured OpenAI-compatible endpoint. No API key means deterministic mode; `require-agent: true` makes model completion mandatory.
-- **Evidence delivery:** HTML/JSON artifacts and PR feedback by default. Public HTTPS hosting is a separate, explicit opt-in—not an automatic publication of source code.
+- **Evidence delivery:** HTML/JSON artifacts and PR feedback by default. Once a maintainer explicitly enables public hosting, completed reviews can automatically publish versioned HTTPS reports and update the same PR comment; hosting is disabled by default.
 
 GitHub only enforces the result after a maintainer makes the actual **Aegis merge gate** check required in branch protection/rulesets. Check names may include the caller job prefix.
 
@@ -146,7 +146,17 @@ Provider-backed `eval-live` explicitly requires a model and uses your API quota.
 
 ## Reports, releases and contributing
 
-- [Report hosting](docs/report-hosting.md): default authenticated artifact delivery; optional manually approved public Pages report. Never publish confidential code on a public site.
+### Open reports in the browser
+
+Public hosting is **disabled by default**; having the code does not mean a site is deployed. To enable automatic publishing, merge the publisher into the default branch, select **GitHub Actions** in Pages settings and set the repository variable `AEGIS_PUBLIC_REPORTS=true`. An optional `github-pages` environment approval can still pause each deployment. The publisher does not activate or replace the Review workflow, and v1 activation is not a prerequisite.
+
+Both legacy and v1 report-producer workflows must match an audited, pinned SHA256; v1 also requires a validated publication manifest. Public hosting currently accepts direct PR workflows only, not unapproved reusable/nested producer chains. See [supported sources and setup](docs/report-hosting.md).
+
+After a completed review and successful deployment, the same PR bot comment receives a prominent webpage link. Reports have separate `reports/pr-<number>/<full-head-sha>/<run-id>-<attempt>/index.html` paths; validated JSON history is appended to `aegis-report-history` and every deployment rebuilds the full archive. Limits are 200 records / 64 MiB total / 17 MiB per record, with explicit failure instead of automatic deletion. Publication failures leave existing Artifact/Check feedback intact and do not change the merge gate.
+
+**Public repositories only.** Both code/vulnerability details and archived JSON become public. This uses the repository's entire Pages site: do not enable it over an existing documentation site without a separate deployment plan. Disabling the variable does not remove previously published evidence. A manual dispatch with `confirm-public` can authorize a single publication without enabling automatic publishing. Use the HTTPS URL returned after a successful deployment; [setup, permissions and recovery](docs/report-hosting.md).
+
+- [Report hosting](docs/report-hosting.md): opt-in automatic HTTPS history and manual recovery; Artifact delivery remains the default. Never publish confidential code on a public site.
 - [GitHub integration](docs/github-action.md): six-platform release-candidate builds, SHA256 and immutable consumer version pinning. Building artifacts does not automatically publish a release.
 - [Contributing](CONTRIBUTING.md): tests, corpus updates, negative security cases and review workflow.
 - [Security](SECURITY.md): supported boundary, secrets, prompt injection, dependency and sandbox limitations.

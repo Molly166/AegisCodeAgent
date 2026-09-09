@@ -1,33 +1,43 @@
-name: Publish public HTML report (opt-in)
+name: Publish public HTML reports
 
 on:
+  workflow_run:
+    workflows: [Aegis Code Review]
+    types: [completed]
   workflow_dispatch:
     inputs:
       run-id:
         description: 'Completed Aegis review run ID in this public repository'
         required: true
         type: string
-      pr-number:
-        description: 'PR number; the report must match its current Base and Head'
+      run-attempt:
+        description: 'Exact review attempt (must still be the latest attempt of this run)'
         required: true
+        default: '1'
+        type: string
+      pr-number:
+        description: 'Optional: confirm the PR number recorded by the review run'
+        required: false
         type: string
       confirm-public:
-        description: 'I reviewed the evidence and approve publishing it publicly. This replaces the current Pages site.'
+        description: 'Approve public code/vulnerability evidence and the dedicated Pages site'
         required: true
         default: false
         type: boolean
 
 permissions: {}
 
-concurrency:
-  group: aegis-public-report-pages
-  cancel-in-progress: false
-
+# No workflow-level concurrency: every accepted run must reach the archive.
+# Deployment alone is serialized, and reloads the complete archive under its lock.
 jobs:
   prepare:
-    if: ${{ inputs.confirm-public && github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+    if: >-
+      ${{ github.event.repository.private == false &&
+          github.ref == format('refs/heads/{0}', github.event.repository.default_branch) &&
+          ((github.event_name == 'workflow_run' && vars.AEGIS_PUBLIC_REPORTS == 'true') ||
+           (github.event_name == 'workflow_dispatch' && inputs.confirm-public)) }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     permissions:
       contents: read
       actions: read
@@ -35,85 +45,188 @@ jobs:
     outputs:
       head: ${{ steps.source.outputs.head }}
     steps:
-      - name: Verify public repository and exact Aegis run provenance
-        id: source
-        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
-        env:
-          AEGIS_SOURCE_RUN: ${{ inputs.run-id }}
-          AEGIS_PR_NUMBER: ${{ inputs.pr-number }}
-        with:
-          script: |
-            for (const value of [process.env.AEGIS_SOURCE_RUN, process.env.AEGIS_PR_NUMBER]) {
-              if (!/^[1-9][0-9]{0,14}$/.test(value)) throw new Error('Expected a numeric run/PR ID');
-            }
-            const { data: repo } = await github.rest.repos.get(context.repo);
-            if (repo.private || repo.visibility !== 'public') throw new Error('Public report hosting is disabled for private/internal repositories');
-            const { data: run } = await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: Number(process.env.AEGIS_SOURCE_RUN) });
-            if (run.event !== 'pull_request' || run.status !== 'completed' ||
-                run.path.split('@')[0] !== '.github/workflows/aegis-review.yml' ||
-                run.repository.full_name !== repo.full_name) throw new Error('Expected a completed Aegis PR review in this repository');
-            const number = Number(process.env.AEGIS_PR_NUMBER);
-            if (!run.pull_requests.some(pr => pr.number === number)) throw new Error('Run does not belong to the selected PR');
-            const { data: pr } = await github.rest.pulls.get({ ...context.repo, pull_number: number });
-            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, { ...context.repo, run_id: run.id, per_page: 100 });
-            const report = artifacts.filter(a => a.name === 'aegis-review-report-' + run.run_attempt && !a.expired);
-            if (report.length !== 1 || report[0].size_in_bytes > 20 * 1024 * 1024) throw new Error('Missing, ambiguous, expired or oversized report artifact');
-            core.setOutput('artifact-id', report[0].id);
-            core.setOutput('base', pr.base.sha);
-            core.setOutput('head', pr.head.sha);
-
-      - name: Check out reviewed publisher source from default branch
+      - name: Check out trusted default-branch publisher (never PR Head)
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.sha }}
-          path: reviewer
+          path: publisher
           persist-credentials: false
-
-      - name: Download only the selected artifact
+      - name: Resolve exact review provenance and artifact
+        id: source
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { resolveSource } = require('./publisher/scripts/report-pages-source.cjs');
+            const eventRun = context.eventName === 'workflow_run' ? context.payload.workflow_run : undefined;
+            const inputs = context.payload.inputs || {};
+            const source = await resolveSource({ github, repo: context.repo, eventRun,
+              runId: eventRun?.id ?? inputs['run-id'], attempt: eventRun?.run_attempt ?? inputs['run-attempt'],
+              prNumber: eventRun ? undefined : inputs['pr-number'] || undefined });
+            fs.writeFileSync(process.env.RUNNER_TEMP + '/public-source.json', JSON.stringify(source), { flag: 'wx' });
+            core.setOutput('artifact-id', source.artifact_id);
+            core.setOutput('run-id', source.run_id);
+            core.setOutput('head', source.head);
+      - name: Download only the resolved evidence artifact
+        if: ${{ steps.source.outputs.artifact-id != '0' }}
+        continue-on-error: true
         uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
         with:
           artifact-ids: ${{ steps.source.outputs.artifact-id }}
-          run-id: ${{ inputs.run-id }}
+          run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: evidence
           merge-multiple: true
-
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26.6'
           cache: false
-
-      - name: Regenerate safe HTML from validated JSON (never deploy uploaded HTML)
-        env:
-          AEGIS_BASE: ${{ steps.source.outputs.base }}
-          AEGIS_HEAD: ${{ steps.source.outputs.head }}
-        run: |
-          mkdir -p bin
-          (cd reviewer && go build -trimpath -o "$GITHUB_WORKSPACE/bin/aegis" ./cmd/aegis)
-          node reviewer/scripts/host-report.cjs
-
-      - name: Upload the single regenerated report for Pages
-        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+      - name: Build trusted report renderer
+        working-directory: publisher
+        run: go build -trimpath -o "$RUNNER_TEMP/aegis-renderer" ./cmd/aegis
+      - name: Validate JSON and original result (never execute artifact HTML or PR code)
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
         with:
-          path: site
+          script: |
+            const fs = require('node:fs');
+            const { createRecord } = require('./publisher/scripts/report-pages-source.cjs');
+            const { renderRecord } = require('./publisher/scripts/report-pages-render.cjs');
+            const source = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + '/public-source.json', 'utf8'));
+            const input = createRecord(source, process.env.GITHUB_WORKSPACE + '/evidence');
+            const { record } = renderRecord(input, { binary: process.env.RUNNER_TEMP + '/aegis-renderer',
+              directory: process.env.RUNNER_TEMP + '/prepared-report' });
+            fs.mkdirSync('prepared');
+            fs.writeFileSync('prepared/record.json', JSON.stringify(record), { flag: 'wx' });
+            core.notice(`Prepared PR #${record.pr_number}: ${record.status}. The review gate is unchanged.`);
+      - name: Transfer only validated report data
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: public-report-record-${{ github.run_attempt }}
+          path: prepared/record.json
+          if-no-files-found: error
+          retention-days: 7
 
-  deploy:
+  archive:
     needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: publisher
+          persist-credentials: false
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: public-report-record-${{ github.run_attempt }}
+          path: prepared
+      - name: Append immutable JSON with compare-and-swap (no force push)
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { saveRecord } = require('./publisher/scripts/report-pages-archive.cjs');
+            const { data: repo } = await github.rest.repos.get(context.repo);
+            if (repo.private !== false || repo.visibility !== 'public') throw new Error('Repository must remain public');
+            const record = JSON.parse(fs.readFileSync('prepared/record.json', 'utf8'));
+            const saved = await saveRecord({ github, repo: context.repo, record });
+            core.notice(`Archived ${saved.path}; existing records were preserved.`);
+
+  deploy:
+    needs: [prepare, archive]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: aegis-public-report-pages
+      cancel-in-progress: false
+    permissions:
+      contents: read
       pages: write
       id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page-url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy approved public report
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: publisher
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26.6'
+          cache: false
+      - name: Build trusted report renderer
+        working-directory: publisher
+        run: go build -trimpath -o "$RUNNER_TEMP/aegis-renderer" ./cmd/aegis
+      - name: Reload the entire archive after acquiring the deployment lock
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { loadArchive } = require('./publisher/scripts/report-pages-archive.cjs');
+            const { buildSite } = require('./publisher/scripts/report-pages-render.cjs');
+            const { data: repo } = await github.rest.repos.get(context.repo);
+            if (repo.private !== false || repo.visibility !== 'public') throw new Error('Repository must remain public');
+            const { records } = await loadArchive({ github, repo: context.repo });
+            if (!records.length) throw new Error('Refusing to replace Pages with an empty archive');
+            buildSite(records, { binary: process.env.RUNNER_TEMP + '/aegis-renderer',
+              directory: process.env.GITHUB_WORKSPACE + '/site', scratch: process.env.RUNNER_TEMP + '/render-history' });
+            fs.mkdirSync('deployment');
+            fs.writeFileSync('deployment/records.json', JSON.stringify(records), { flag: 'wx' });
+            core.notice(`Prepared ${records.length} historical reports; no archived HTML/JS was reused.`);
+      - name: Record exactly which reports this deployment contains
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        with:
+          name: public-report-deployment-${{ github.run_attempt }}
+          path: deployment/records.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Upload complete historical site
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+      - name: Deploy public reports
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
-      - name: Show the HTTPS report address
+      - name: Show the HTTPS report directory
         env:
           AEGIS_PAGE_URL: ${{ steps.deployment.outputs.page_url }}
           AEGIS_HEAD: ${{ needs.prepare.outputs.head }}
         run: |
-          printf '[Open the public HTML report](%s) — commit \140%s\140. This opt-in Pages site contains only the latest manually published report.\n' "$AEGIS_PAGE_URL" "$AEGIS_HEAD" >> "$GITHUB_STEP_SUMMARY"
+          printf '[Open the public HTML report](%s) — commit \140%s\140. Open the directory to select the exact PR, commit and attempt.\n' "$AEGIS_PAGE_URL" "$AEGIS_HEAD" >> "$GITHUB_STEP_SUMMARY"
+
+  feedback:
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pages: read
+      actions: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: publisher
+          persist-credentials: false
+      - uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: public-report-deployment-${{ github.run_attempt }}
+          path: deployment
+      - name: Refresh current PR links only after successful deployment
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        env:
+          AEGIS_PAGE_URL: ${{ needs.deploy.outputs.page-url }}
+        with:
+          script: |
+            const fs = require('node:fs');
+            const { refreshFeedback } = require('./publisher/scripts/report-pages-feedback.cjs');
+            const records = JSON.parse(fs.readFileSync('deployment/records.json', 'utf8'));
+            const result = await refreshFeedback({ github, context, core }, { records, pageURL: process.env.AEGIS_PAGE_URL });
+            core.notice(JSON.stringify(result));

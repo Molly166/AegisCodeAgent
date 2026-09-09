@@ -85,7 +85,17 @@ Pocos casos sintéticos y un emparejador léxico no demuestran calidad en produc
 
 Esta versión se centra en repositorios Go de un solo módulo. No garantiza cobertura equivalente para todos los lenguajes, pruebas semánticas universales, correcciones automáticas ni aprovisionamiento de dependencias privadas. Docker no equivale al aislamiento de una máquina virtual.
 
-- [Informes HTTPS](docs/report-hosting.md): Artifact por defecto; Pages público solo mediante aprobación manual. Nunca publiques código confidencial.
+### Abrir el informe sin descargar HTML
+
+El alojamiento público está **desactivado por defecto**; disponer del código no demuestra que el sitio esté desplegado. Para habilitar la publicación automática, integra el publicador en la rama predeterminada, selecciona **GitHub Actions** como Source de Pages y añade la variable de repositorio `AEGIS_PUBLIC_REPORTS=true`. Si configuras revisores obligatorios en el entorno `github-pages`, cada despliegue seguirá esperando su aprobación. El publicador no activa ni sustituye el workflow de Review y no exige activar antes v1.
+
+Los workflows productores de informes, tanto antiguos como v1, deben coincidir con un SHA256 fijo y auditado; v1 también requiere un publication manifest validado. El alojamiento público solo admite workflows de PR directos, no cadenas reusable o anidadas sin aprobar. [Fuentes compatibles y configuración](docs/report-hosting.md).
+
+Tras finalizar la revisión y desplegar correctamente, el mismo comentario del bot incorpora un enlace destacado al informe web. Cada informe tiene su propia ruta `reports/pr-<number>/<full-head-sha>/<run-id>-<attempt>/index.html`; el JSON validado se añade a la rama `aegis-report-history` y cada despliegue regenera todo el historial. Los límites son 200 registros, 64 MiB en total y 17 MiB por registro; superarlos provoca un fallo, no el borrado automático del historial. Los fallos de publicación conservan los Artifacts/Checks y comentarios existentes y no cambian el resultado de la política de fusión.
+
+**Solo para repositorios públicos.** Se publican código, detalles de vulnerabilidades y JSON archivado, usando todo el sitio Pages del repositorio. No lo actives sobre un sitio de documentación existente sin otro plan de despliegue. Desactivar la variable no retira los datos ya publicados. También puedes autorizar una publicación manual mediante `confirm-public` sin habilitar la automatización. Utiliza la URL HTTPS devuelta después de un despliegue correcto. [Configuración y seguridad](docs/report-hosting.md).
+
+- [Informes HTTPS](docs/report-hosting.md): historial automático tras habilitarlo explícitamente y recuperación manual; Artifact sigue siendo la opción predeterminada. Nunca publiques código confidencial.
 - [Paquetes de lanzamiento](docs/github-action.md): seis combinaciones OS/arquitectura y SHA256. Construir paquetes no publica etiquetas ni Releases automáticamente.
 - [Contribuir](CONTRIBUTING.md), [seguridad](SECURITY.md) y [validación](docs/validation.md).
 

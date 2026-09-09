@@ -28,7 +28,9 @@ jobs:
         run: bash scripts/check-workflows.sh
 
       - name: Test evidence publishing and PR feedback boundaries
-        run: node --test scripts/*.test.cjs
+        run: |
+          go build -trimpath -o "$RUNNER_TEMP/aegis-pages-test" ./cmd/aegis
+          AEGIS_TEST_BINARY="$RUNNER_TEMP/aegis-pages-test" node --test scripts/*.test.cjs
 
       - name: Check formatting
         run: test -z "$(gofmt -l .)"
