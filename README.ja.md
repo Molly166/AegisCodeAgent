@@ -16,11 +16,11 @@ GitHub の PR 上で動作する、Go 向けコードレビュー Agent です�
 
 > **v1 リリース候補の開発版。** 再利用可能な Workflow、複数 Provider、隔離実行、実コード評価を実装しています。リリースタグの公開、実 API の品質評価、レポートサイトのデプロイが完了したという意味ではありません。[検証状況](docs/validation.md)。
 
-> **二段階の移行中です。** `examples/aegis-review-v1-migration.yml` が存在する間は段階 1 で、実際の PR Workflow は旧版のままです。以下の四 Job・Docker 隔離・再利用 Workflow は**まだ有効ではありません**。実装を信頼できる `master` にマージした後、一時ファイルを削除して実際の Workflow を v1 に切り替えると段階 2 になります。PR #12 で移行と CI の失敗が確認され、修正後のオンライン検証は未完了です。[移行順序](docs/github-action.md)を守り、対象 Head を自動的に信頼して回避しないでください。設定変更だけでは検証完了になりません。
+> **このリビジョンでは V1 設定を選択しています。** 実装を信頼できる `master` にマージした後、四 Job・Docker 隔離・再利用 Workflow を `.github/workflows/aegis-review.yml` に設定し、一時コピーを削除しました。このローカルでの有効化は **GitHub での実行成功を意味しません**。オンライン PR、Docker サンドボックス、外部リポジトリの受け入れ検証は、このリビジョンの push とレビュー後に行う必要があります。本番認証や正式リリースではありません。[V1 受け入れチェックリスト](docs/v1-acceptance.md)と[信頼境界を守る移行手順](docs/github-action.md)に従い、対象 Head を自動的に信頼して回避しないでください。
 
 ## 動作とアーキテクチャ
 
-以下は v1 Workflow の有効化と検証が完了した後の構成です。
+以下は選択済みの v1 Workflow の設計です。オンラインでの動作は、上記の受け入れチェックリストによる検証が必要です。
 
 ```text
 PR 作成 / 更新 → 信頼できるレビュー実装と正確な Base/Head を解決
@@ -39,7 +39,7 @@ PR 作成 / 更新 → 信頼できるレビュー実装と正確な Base/Head �
 
 ## 他のリポジトリへの導入
 
-段階 2 の検証後に `.github/workflows/aegis.yml` を追加します。Aegis のソースをコピーする必要はありません。段階 1 の旧 Workflow はこの `workflow_call` 導入には対応していません。
+監査済みの V1 リビジョンが[外部リポジトリの受け入れ検証](docs/v1-acceptance.md)を通過した後、`.github/workflows/aegis.yml` を追加します。Aegis のソースをコピーする必要はありません。このリビジョンはローカルで `workflow_call` 設定を選択していますが、外部導入の検証は未完了です。旧 Workflow のみを含む過去のリビジョンは導入先として使用できません。
 
 ```yaml
 name: Aegis review
@@ -76,7 +76,7 @@ Aegis は OrcaRouter の互換 API 経由でモデルを利用する任意のア
 2. `ORCAROUTER_API_KEY` を環境変数または GitHub Actions Secrets に保存します。ソースコードや JSON には保存しないでください。
 3. CLI では `--agent-provider orcarouter` を選択します。Endpoint は `https://api.orcarouter.ai/v1` です。モデルのプリセット `deepseek/deepseek-v4-flash` は変更可能で、利用可能性と能力は利用前に確認してください。[コマンドと設定](docs/providers.md#orcarouter)。
 
-> **連携状況:** アダプターとモックによる契約テストは実装済みですが、OrcaRouter の実 API による受け入れ検証は未完了です。現在有効な PR Workflow は引き続き DeepSeek を選択します。再利用 Workflow の `provider: orcarouter` を利用するには、段階 2 の有効化と受け入れ検証が必要です。
+> **連携状況:** アダプターとモックによる契約テストは実装済みですが、OrcaRouter の実 API による受け入れ検証は未完了です。V1 の自己レビュー設定は引き続き DeepSeek を選択します。監査済みの Workflow リビジョンが[受け入れ検証](docs/v1-acceptance.md)を通過した後、再利用 Workflow の呼び出し元で `provider: orcarouter` を明示的に選択できます。Secret を追加するだけでは自己レビューを OrcaRouter に切り替えません。
 
 **紹介リンクの開示:** 紹介リンクに紐づくワークスペースで対象となる有料利用が発生した場合、プログラム規約に基づき、メンテナーがその利用額の 5% を紹介報酬として受け取ることがあります。利用は任意で、Provider の選択は制限されません。ロゴは任意の Provider 連携を示すものであり、ディレクトリ掲載の承認や推奨を意味しません。[詳細](docs/providers.md#referral-disclosure)。
 

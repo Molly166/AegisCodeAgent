@@ -9,7 +9,7 @@ const { createHash } = require('node:crypto');
 const root = path.join(__dirname, '..');
 const pending = path.join(root, 'examples/aegis-review-v1-migration.yml');
 const active = path.join(root, '.github/workflows/aegis-review.yml');
-const yaml = fs.readFileSync(fs.existsSync(pending) ? pending : active, 'utf8');
+const yaml = fs.readFileSync(active, 'utf8');
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const base = 'a'.repeat(40), head = 'b'.repeat(40), reviewer = 'c'.repeat(40);
 
@@ -40,14 +40,55 @@ function trustedFixture(dir) {
   fs.writeFileSync(path.join(dir, 'reviewer/scripts/reviewer-contract.json'), '{"workflow_protocol":1}');
 }
 
-test('staged migration cannot silently replace the active legacy review contract', () => {
-  if (fs.existsSync(pending)) {
-    // Trusted master workflow, with only a documented SC2129 style suppression.
-    assert.equal(createHash('sha256').update(fs.readFileSync(active)).digest('hex'),
-      '11dcdd369a4a83eba8dbcffd3ac7cae9870db81570616bb4dcb82cf1f4308d3c');
-  } else {
-    assert.match(yaml, /workflow_call:/);
-    assert.match(yaml, /reviewerSHA = pr\.base\.sha/);
+test('v1 is the active entry point and matches the approved public-report producer', () => {
+  assert.equal(fs.existsSync(pending), false, 'acceptance must not silently test a staged workflow');
+  assert.match(yaml, /workflow_call:/);
+  assert.match(yaml, /reviewerSHA = pr\.base\.sha/);
+  const jobs = yaml.slice(yaml.indexOf('\njobs:\n'));
+  assert.deepEqual([...jobs.matchAll(/^  ([a-z]+):$/gm)].map(match => match[1]),
+    ['prepare', 'analyze', 'publish', 'gate']);
+  const publisher = fs.readFileSync(path.join(root, 'scripts/report-pages-source.cjs'), 'utf8');
+  const approved = publisher.match(/v1:\s*'([0-9a-f]{64})'/)?.[1];
+  assert.ok(approved, 'the public publisher must recognize an audited v1 producer');
+  assert.equal(createHash('sha256').update(yaml).digest('hex'), approved);
+  for (const action of yaml.matchAll(/\buses:\s+([^\s#]+)/g)) {
+    assert.match(action[1], /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+@[0-9a-f]{40}$/,
+      'active v1 actions must use immutable reviewed SHAs');
+  }
+});
+
+test('active v1 self-review resolves Base, rejects ambiguous sources and never falls back to Head', async () => {
+  const resolve = inlineStep('Resolve immutable workflow identity and PR commits');
+  for (const mode of ['self', 'fork', 'external', 'external-missing', 'ambiguous', 'invalid-sha', 'wrong-base-repo', 'unsafe-event']) {
+    const external = mode.startsWith('external');
+    const owner = external ? 'consumer' : 'Molly166';
+    const repo = external ? 'service' : 'AegisCodeAgent';
+    const context = { eventName: mode === 'unsafe-event' ? 'pull_request_target' : 'pull_request',
+      runId: 100, repo: { owner, repo }, payload: { pull_request: { number: 7,
+        base: { sha: base, repo: { full_name: mode === 'wrong-base-repo' ? 'attacker/repo' : `${owner}/${repo}` } },
+        head: { sha: head, repo: { full_name: mode === 'fork' ? `fork/${repo}` : `${owner}/${repo}` } },
+      } } };
+    const called = { path: 'Molly166/AegisCodeAgent/.github/workflows/aegis-review.yml@v1.0.0', sha: reviewer };
+    const run = { path: external ? '.github/workflows/caller.yml' : '.github/workflows/aegis-review.yml',
+      referenced_workflows: mode === 'external' ? [called] : mode === 'ambiguous' ? [called, called] :
+        mode === 'invalid-sha' ? [{ ...called, sha: 'master' }] : [] };
+    const outputs = {};
+    const execute = () => resolve(require, { env: { GITHUB_RUN_ATTEMPT: '2' } }, {
+      request: async (route, params) => {
+        assert.equal(route, 'GET /repos/{owner}/{repo}/actions/runs/{run_id}/attempts/{attempt_number}');
+        assert.equal(params.attempt_number, 2);
+        return { data: run };
+      },
+    }, context, { setOutput: (key, value) => { outputs[key] = value; } });
+    if (['self', 'fork', 'external'].includes(mode)) {
+      await execute();
+      assert.deepEqual(outputs, { 'reviewer-sha': external ? reviewer : base,
+        base, head, number: '7', 'same-repository': mode !== 'fork' }, mode);
+      assert.notEqual(outputs['reviewer-sha'], head);
+    } else {
+      await assert.rejects(execute(), /unambiguously|immutable Git commit SHA|base repository|pull_request event/, mode);
+      assert.deepEqual(outputs, {}, 'rejected identities must not reach downstream jobs');
+    }
   }
 });
 

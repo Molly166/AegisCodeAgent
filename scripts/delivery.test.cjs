@@ -12,11 +12,8 @@ const { validatePublication, host } = require('./host-report.cjs');
 const { checkOfflineEval } = require('./check-offline-eval.cjs');
 const base = 'a'.repeat(40);
 const head = 'b'.repeat(40);
-// Bootstrap validates the staged v1 workflow while the trusted legacy entry
-// point stays unchanged. After activation, test the live workflow instead.
-const pendingWorkflow = path.join(__dirname, '../examples/aegis-review-v1-migration.yml');
-const workflowPath = fs.existsSync(pendingWorkflow) ? pendingWorkflow :
-  path.join(__dirname, '../.github/workflows/aegis-review.yml');
+// Activation acceptance must exercise the actual GitHub entry point.
+const workflowPath = path.join(__dirname, '../.github/workflows/aegis-review.yml');
 
 function fixture(t) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aegis-delivery-'));
@@ -205,17 +202,24 @@ test('workflow does not route a DeepSeek key to another provider or a fork', () 
   assert.equal(select('true', 'molly', 'orcarouter', 'orca-key', 'deep-key'), 'orca-key');
 });
 
-test('required merge check runs and fails even when preparation was skipped or failed', () => {
+test('required merge check runs and fails when any dependency or publisher verdict is unsuccessful', () => {
   const yaml = fs.readFileSync(workflowPath, 'utf8');
   const gate = yaml.slice(yaml.indexOf('\n  gate:\n'));
   assert.match(gate, /if: always\(\)/);
   assert.match(gate, /needs: \[prepare, analyze, publish\]/);
   const script = gate.split('        run: |\n')[1].split('\n').map(line => line.slice(10)).join('\n');
-  for (const prepare of ['failure', 'skipped', 'cancelled']) {
-    const result = spawnSync('bash', ['-e', '-c', script], { env: {
-      AEGIS_PREPARE: prepare, AEGIS_ANALYZE: 'success', AEGIS_PUBLISH: 'success', AEGIS_GATE: '0',
-    } });
-    assert.notEqual(result.status, 0);
+  const passed = { AEGIS_PREPARE: 'success', AEGIS_ANALYZE: 'success', AEGIS_PUBLISH: 'success', AEGIS_GATE: '0' };
+  assert.equal(spawnSync('/bin/bash', ['-e', '-c', script], { env: passed }).status, 0);
+  for (const job of ['AEGIS_PREPARE', 'AEGIS_ANALYZE', 'AEGIS_PUBLISH']) {
+    for (const status of ['failure', 'skipped', 'cancelled', 'timed_out', '']) {
+      const result = spawnSync('/bin/bash', ['-e', '-c', script], { env: { ...passed, [job]: status } });
+      assert.notEqual(result.status, 0, `${job}=${status} cannot become a passing check`);
+    }
+  }
+  for (const verdict of ['1', '2', '']) {
+    assert.notEqual(spawnSync('/bin/bash', ['-e', '-c', script], {
+      env: { ...passed, AEGIS_GATE: verdict },
+    }).status, 0, `publisher verdict ${verdict} cannot become a passing check`);
   }
 });
 

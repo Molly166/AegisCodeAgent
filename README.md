@@ -16,11 +16,11 @@ A Go-focused code-review agent that lives in GitHub pull requests. Aegis combine
 
 > **v1 release candidate, in development.** Reusable workflows, optional model providers, isolated analysis and real-code evaluation are implemented. A release tag, live provider quality results and a deployed report site are **not** implied. See [validation and limitations](docs/validation.md).
 
-> **Two-stage migration:** while `examples/aegis-review-v1-migration.yml` exists, this revision is stage 1 and retains the old active PR workflow. The four-job sandboxed/reusable workflow described below is **not yet active**. Stage 2 requires removing that file and activating v1 in `.github/workflows/aegis-review.yml`, only after the implementation has landed on trusted `master`. PR #12 exposed upgrade and CI failures; fixes still need online acceptance. Follow the [ordered migration plan](docs/github-action.md), never trust the target Head as a shortcut. Configuration activation alone does not prove a successful deployment.
+> **V1 configuration selected in this revision.** After the implementation landed on trusted `master`, the four-job sandboxed/reusable workflow is now configured in `.github/workflows/aegis-review.yml`; the staging copy has been removed. This local activation does **not** mean GitHub has run it: online PR, Docker sandbox and external-consumer acceptance remain pending until this revision is pushed and reviewed. It is not a production certification or a published release. Follow the [V1 acceptance checklist](docs/v1-acceptance.md) and [trusted migration boundary](docs/github-action.md); never trust the target Head as a shortcut.
 
 ## What you get
 
-With the v1 workflow activated and validated, opening or updating a PR makes Aegis review its exact Head against its Base. It updates one bot comment, attaches file/line annotations, uploads a self-contained HTML report and returns an independent **Aegis merge gate** check.
+The selected v1 workflow is designed to review the exact PR Head against its Base when a PR is opened or updated. It updates one bot comment, attaches file/line annotations, uploads a self-contained HTML report and returns an independent **Aegis merge gate** check. These online behaviors still require the acceptance checks linked above.
 
 - **Findings first:** P0–P3, affected code, evidence and suggested action.
 - **No false clean:** unresolved model hypotheses stay visible as `Needs Review`; incomplete or degraded coverage is identified separately.
@@ -78,7 +78,7 @@ This is a container boundary, not a virtual machine or a guarantee against kerne
 
 ## Install in another repository
 
-After stage 2 passes acceptance, use one reusable workflow; you do **not** copy the Aegis source into the target repository. A stage-1 revision still has the old workflow and is not a compatible `workflow_call` installation target.
+After an audited V1 revision passes [external-consumer acceptance](docs/v1-acceptance.md), use one reusable workflow; you do **not** copy the Aegis source into the target repository. This revision selects the `workflow_call` configuration locally, but external installation is not yet accepted. Older revisions containing only the legacy workflow are not compatible installation targets.
 
 Create `.github/workflows/aegis.yml`:
 
@@ -120,7 +120,7 @@ Aegis includes an optional OrcaRouter adapter for model access through its compa
 2. Store the key as `ORCAROUTER_API_KEY` in your environment or GitHub Actions Secrets, never in source code or JSON configuration.
 3. Select `--agent-provider orcarouter` in the CLI. The endpoint is `https://api.orcarouter.ai/v1`; `deepseek/deepseek-v4-flash` is a configurable preset, not a verified-live model claim. Check model availability and capabilities before use. See [commands and configuration](docs/providers.md#orcarouter).
 
-> **Integration status:** the adapter and mocked contract tests are implemented; live OrcaRouter API acceptance remains pending. The active PR workflow still selects DeepSeek. The reusable workflow's `provider: orcarouter` setting requires stage 2 activation and acceptance; adding a Secret alone does not switch the current workflow.
+> **Integration status:** the adapter and mocked contract tests are implemented; live OrcaRouter API acceptance remains pending. The V1 self-review configuration continues to select DeepSeek. After an audited workflow revision passes [acceptance](docs/v1-acceptance.md), a reusable caller can explicitly select `provider: orcarouter`; adding a Secret alone does not switch self-review to OrcaRouter.
 
 **Referral disclosure:** the maintainer may receive 5% of eligible paid usage from workspaces attributed through the referral link, subject to the program terms. Participation is optional and does not lock you into this provider. The OrcaRouter logo identifies an optional provider integration, not directory approval or provider endorsement. [Details](docs/providers.md#referral-disclosure).
 

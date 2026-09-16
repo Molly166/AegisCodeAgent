@@ -1,8 +1,19 @@
 # v1 发布候选验收记录
 
-记录日期：2026-09-08。首轮候选为 `ee4cfb520c894bc7dc32fdd75043552d94857e61`，基于 `master` 提交 `75fd9868f468dea955fe490391761f058327068e`。阶段 1 修复已通过 [PR #13](https://github.com/Molly166/AegisCodeAgent/pull/13) 合入，当前可信 `master` 为 `24507c8`；本轮 Go Test 误报修复分支为 `fix/go-test-skip-false-positive-20260908`，基于该版本。下文区分历史失败、已完成的线上验收与本轮待验收项，不代表已经发布 Release 或新版 Review 全链路已上线。
+## 当前修订：阶段 2 配置已激活，线上验收待完成（2026-09-16）
 
-## 当前迁移状态与线上验收
+- 激活分支：`feat/v1-workflow-activation-20260916`，基于可信 `master` `9fbdb52c75bb7fba33b2b58ac8e0e2ec70c91bac`（PR #17 合入后）。
+- 已将预审的四 Job 工作流原样切换为正式 `.github/workflows/aegis-review.yml`，移除暂存入口，保持报告发布器认可的 v1 SHA256 不变。
+- 只读查询已确认上述基线的 [GitHub CI 35076687212](https://github.com/Molly166/AegisCodeAgent/actions/runs/35076687212) 三个 Job 成功：`verify`、`Docker isolation integration`、`Offline executable pipeline health (not model accuracy)`。这是**激活之前的基线 CI**，不能替代激活分支自己的运行。
+- 本次本地检查、门禁矩阵、推送后验收步骤与证据记录见 [v1 激活验收清单](v1-acceptance.md)。本修订未声明新版 PR Review 已上线、已完成外部仓库复用验收、已发布 Release 或已测得真实模型准确率。
+
+## 历史记录边界
+
+以下保留 2026-09-08 的原始阶段 1 验收与失败记录，其中“当前”“本轮”“尚未激活”等表述属于当时的快照，不代表 2026-09-16 的配置状态。模型实测及其他外部验收仍需独立证据，不能由配置激活推断通过。
+
+历史记录日期：2026-09-08。首轮候选为 `ee4cfb520c894bc7dc32fdd75043552d94857e61`，基于 `master` 提交 `75fd9868f468dea955fe490391761f058327068e`。阶段 1 修复已通过 [PR #13](https://github.com/Molly166/AegisCodeAgent/pull/13) 合入，当时可信 `master` 为 `24507c8`；该轮 Go Test 误报修复分支为 `fix/go-test-skip-false-positive-20260908`。这些记录不代表已经发布 Release 或新版 Review 全链路已上线。
+
+## 历史迁移状态与线上验收（2026-09-08）
 
 - **阶段 1 已合入：** `fix/aegis-v1-bootstrap-ci-20260908` 的实现通过 PR #13 进入可信 Base，CI 的 3 个 Job 均已成功，包括真实 Linux Docker 集成测试。
 - **阶段 2 尚未激活：** `examples/aegis-review-v1-migration.yml` 仍为待启用配置，实际 `.github/workflows/aegis-review.yml` 保留旧链路。不能把 CI 中容器测试成功表述为线上 PR Review 已使用新版四 Job 沙箱链路。
