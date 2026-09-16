@@ -1,6 +1,16 @@
-# AegisCodeAgent
+<p align="center">
+  <img src="docs/assets/aegis-pr-gate-harmony.png" alt="AegisCodeAgent" width="96" height="96" />
+</p>
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
+<h1 align="center">AegisCodeAgent</h1>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a> | <a href="README.es.md">Español</a>
+</p>
+
+<p align="center">
+  <a href="https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85"><img src="https://www.orcarouter.ai/orca-logo-classic.png" alt="OrcaRouter" height="32" /> OrcaRouter</a> · <a href="docs/providers.md#referral-disclosure">任意の Provider · 紹介リンクについて</a>
+</p>
 
 GitHub の PR 上で動作する、Go 向けコードレビュー Agent です。静的解析、リポジトリのコンテキスト、モデル推論、独立した証拠検証を組み合わせ、P0–P3 の指摘と HTML レポートを返します。常駐サーバーは不要です。
 
@@ -54,9 +64,21 @@ jobs:
 
 SHA のプレースホルダーを、この Workflow を含む**監査・公開済みコミットの完全 SHA**に置き換えてください。`v1` タグが既にあるとは仮定しません。Key は GitHub Actions Secrets に登録します。
 
-OrcaRouter は `provider: orcarouter` と専用 `ORCAROUTER_API_KEY` を使用します。モデル ID は利用前に確認してください。API を利用しない場合は `provider: none` とし secrets を省略します。汎用 OpenAI-compatible API の HTTPS endpoint とモデル能力は明示的に設定します。[Provider 設定](docs/providers.md)。
+OrcaRouter の設定と連携状況は以下の節を参照してください。外部モデル API を利用しない場合は `provider: none` とし secrets を省略します。汎用 OpenAI-compatible API の HTTPS endpoint とモデル能力は明示的に設定します。[Provider 設定](docs/providers.md)。
 
 Fork/Dependabot PR にモデルキーは渡りません。コメント権限がなくても Check と Artifact にレポートが残ります。Ruleset で実際に表示される **Aegis merge gate** を必須チェックに設定しなければ、GitHub のマージ制限にはなりません。最初の旧 Base からの移行は fail closed となることがあり、メンテナーの明示的な移行レビューが必要です。[詳細な導入手順](docs/github-action.md)。
+
+## 任意の Provider: OrcaRouter
+
+Aegis は OrcaRouter の互換 API 経由でモデルを利用する任意のアダプターを備えています。DeepSeek への直接接続、明示的に設定した他の Provider、モデルを使わない決定的な解析モードも引き続き選択できます。
+
+1. [紹介リンク](https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85)または[通常の公式サイト](https://www.orcarouter.ai/)から登録し、自分の API キーを作成します。
+2. `ORCAROUTER_API_KEY` を環境変数または GitHub Actions Secrets に保存します。ソースコードや JSON には保存しないでください。
+3. CLI では `--agent-provider orcarouter` を選択します。Endpoint は `https://api.orcarouter.ai/v1` です。モデルのプリセット `deepseek/deepseek-v4-flash` は変更可能で、利用可能性と能力は利用前に確認してください。[コマンドと設定](docs/providers.md#orcarouter)。
+
+> **連携状況:** アダプターとモックによる契約テストは実装済みですが、OrcaRouter の実 API による受け入れ検証は未完了です。現在有効な PR Workflow は引き続き DeepSeek を選択します。再利用 Workflow の `provider: orcarouter` を利用するには、段階 2 の有効化と受け入れ検証が必要です。
+
+**紹介リンクの開示:** 紹介リンクに紐づくワークスペースで対象となる有料利用が発生した場合、プログラム規約に基づき、メンテナーがその利用額の 5% を紹介報酬として受け取ることがあります。利用は任意で、Provider の選択は制限されません。ロゴは任意の Provider 連携を示すものであり、ディレクトリ掲載の承認や推奨を意味しません。[詳細](docs/providers.md#referral-disclosure)。
 
 ## ローカル実行と評価
 

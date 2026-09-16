@@ -1,6 +1,16 @@
-# AegisCodeAgent
+<p align="center">
+  <img src="docs/assets/aegis-pr-gate-harmony.png" alt="AegisCodeAgent" width="96" height="96" />
+</p>
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
+<h1 align="center">AegisCodeAgent</h1>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a> | <a href="README.es.md">Español</a>
+</p>
+
+<p align="center">
+  <a href="https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85"><img src="https://www.orcarouter.ai/orca-logo-classic.png" alt="OrcaRouter" height="32" /> OrcaRouter</a> · <a href="docs/providers.md#referral-disclosure">Optional provider · referral disclosure</a>
+</p>
 
 A Go-focused code-review agent that lives in GitHub pull requests. Aegis combines static analysis, repository context, bounded model reasoning and independent verification, then publishes a clear P0–P3 decision with an HTML evidence report. No web server or desktop app is required.
 
@@ -96,11 +106,23 @@ jobs:
 
 `REPLACE_WITH_RELEASE_COMMIT_SHA` is a placeholder: replace it with the full SHA of an audited, published Aegis revision containing this workflow. This documentation does not claim a `v1` tag already exists.
 
-Add the key in **Settings → Secrets and variables → Actions**. To use OrcaRouter, change `provider` to `orcarouter`, select a tested model such as `deepseek/deepseek-v4-flash`, and reference `secrets.ORCAROUTER_API_KEY`. Model availability must be verified with the provider. To avoid external model calls, use `provider: none` and omit secrets.
+Add the key in **Settings → Secrets and variables → Actions**. For OrcaRouter setup and integration status, see the section below. To avoid external model calls, use `provider: none` and omit secrets.
 
 Fork/Dependabot PRs do not receive model credentials. Their report remains available in Checks/Artifacts even when GitHub denies PR comment writes. Enabling `require-agent` intentionally blocks this degraded mode. Optional context/agent failures do not turn a P2 finding into a blocker; missing mandatory evidence still fails closed.
 
 Full setup, inputs, upgrade bootstrap and dependency restrictions: [GitHub integration](docs/github-action.md). The first migration from an older trusted Base may require explicit maintainer review because Aegis will not silently build the Head reviewer to bypass the boundary.
+
+## Optional provider: OrcaRouter
+
+Aegis includes an optional OrcaRouter adapter for model access through its compatible API. DeepSeek direct, other explicitly configured providers and deterministic mode remain available.
+
+1. [Register with the Aegis referral link](https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85), or use the [ordinary OrcaRouter website](https://www.orcarouter.ai/), and create your own API key.
+2. Store the key as `ORCAROUTER_API_KEY` in your environment or GitHub Actions Secrets, never in source code or JSON configuration.
+3. Select `--agent-provider orcarouter` in the CLI. The endpoint is `https://api.orcarouter.ai/v1`; `deepseek/deepseek-v4-flash` is a configurable preset, not a verified-live model claim. Check model availability and capabilities before use. See [commands and configuration](docs/providers.md#orcarouter).
+
+> **Integration status:** the adapter and mocked contract tests are implemented; live OrcaRouter API acceptance remains pending. The active PR workflow still selects DeepSeek. The reusable workflow's `provider: orcarouter` setting requires stage 2 activation and acceptance; adding a Secret alone does not switch the current workflow.
+
+**Referral disclosure:** the maintainer may receive 5% of eligible paid usage from workspaces attributed through the referral link, subject to the program terms. Participation is optional and does not lock you into this provider. The OrcaRouter logo identifies an optional provider integration, not directory approval or provider endorsement. [Details](docs/providers.md#referral-disclosure).
 
 ## Local development
 
