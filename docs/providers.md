@@ -13,13 +13,33 @@ Configuration is loaded **only** with `--config`. API keys belong in environment
 
 ## OrcaRouter
 
+The OrcaRouter adapter is implemented in [provider.go](../internal/agent/provider.go), with mocked protocol tests in [openai_compatible_test.go](../internal/agent/openai_compatible_test.go). These tests do not establish live API compatibility or model quality. Live OrcaRouter acceptance remains pending; see [validation](validation.md#尚未完成的外部验收).
+
+### Get a key and select the provider
+
+1. [Register through the Aegis referral link](https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85), or visit the [ordinary OrcaRouter website](https://www.orcarouter.ai/). Create a key in your own workspace. The referral link is not an API endpoint or an API key.
+2. Set `ORCAROUTER_API_KEY` using your secret manager; do not commit the key or put it in JSON. For an activated GitHub integration, store it in Actions Secrets and pass it explicitly as `provider-api-key`.
+3. Build Aegis as described in the [local development instructions](../README.md#local-development), then select the provider explicitly. Run host-mode commands only against a trusted, clean checkout matching the requested Head. `--analyzers all` also requires installed `staticcheck` and `gosec`.
+
 ```sh
-aegis review --repo . --base master --head HEAD \
+/tmp/aegis review --repo . --base master --head HEAD \
   --agent-provider orcarouter --agent-model deepseek/deepseek-v4-flash \
-  --agent-no-dotenv --analyzers all --format html --output review.html
+  --agent-no-dotenv --analyzers all --format html --output /tmp/aegis-orcarouter-review.html
 ```
 
-Set `ORCAROUTER_API_KEY` through your shell secret manager or GitHub Actions secret. The model identifier above is a configurable preset, not a guarantee of ongoing model availability. Check the gateway's model catalog. Start provider comparisons with the same explicitly selected model, prompt, corpus and budgets. Automatic routing changes the experiment and should be evaluated separately.
+The model identifier above is a configurable preset, not a guarantee of ongoing availability or a record of live validation. Check the gateway's model catalog and the selected model's tool-calling, JSON and reasoning capabilities. Start provider comparisons with the same explicitly selected model, prompt, corpus and budgets. Automatic routing changes the experiment and should be evaluated separately. API calls may incur charges on your workspace.
+
+**GitHub activation boundary:** the active stage-1 PR workflow still selects DeepSeek; merely adding `ORCAROUTER_API_KEY` will not switch it. After [stage 2 activation and acceptance](github-action.md#两阶段升级顺序), select `provider: orcarouter`, an explicitly checked model ID, and `provider-api-key: ${{ secrets.ORCAROUTER_API_KEY }}` in the caller workflow. This section does not claim that external repositories can already use that staged workflow.
+
+Aegis uses the supported Chat Completions endpoint and its own credential variable, `ORCAROUTER_API_KEY`. The partner guide's TOML/Responses example, `ORCA_KEY` name and automatic router are not settings to paste into Aegis unchanged. Interactive PKCE sign-in and the Connect web widget are not implemented by Aegis and are not needed for the current user-supplied-key CLI/Actions design. No authorization widget or referral tracking is injected into review reports.
+
+### Referral disclosure
+
+The maintainer has received an OrcaRouter referral link: <https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85>. Under the offered program, the maintainer may receive **5% of eligible paid usage** from workspaces attributed through that link, subject to the program's attribution and settlement terms. This is not a promise that every click, existing account or API request earns commission; do not assume a discount or free credits.
+
+Using the link and provider is optional. DeepSeek direct, other explicitly configured compatible providers and deterministic mode remain available. The README uses the [OrcaRouter logo published on its official website](https://www.orcarouter.ai/orca-logo-classic.png) to identify an optional provider integration; it does not mean every review uses OrcaRouter, that the project has been approved for the public directory, or that OrcaRouter endorses Aegis. The [Built with OrcaRouter directory](https://www.orcarouter.ai/zh-CN/built-with) is independently reviewed and published by OrcaRouter.
+
+The link is an explicit registration option; Aegis does not silently append referral identifiers to inference requests or replace the user's provider choice.
 
 ## Other compatible models
 
@@ -61,4 +81,4 @@ Only enable capabilities supported by the selected model. Unknown models use con
 
 Each report records per-turn provider, requested/reported model, request ID when supplied, fallback information, attempts, HTTP status and latency. An absent field means unknown, not a successful no-fallback guarantee. Gateway model names are provider-reported metadata, not proof of upstream identity. Token usage reflects what responses report; missing usage and lost responses can undercount actual billed usage. Aegis does not invent a dollar cost from a token count.
 
-The gateway's ZDR statement applies to its own infrastructure; upstream retention and routing policies need separate verification. See [OrcaRouter ZDR](https://docs.orcarouter.ai/operations/zero-data-retention) and [response metadata](https://docs.orcarouter.ai/routing/response-headers). Integration does not mean Aegis endorses a provider or has entered a partnership. Any future referral link must clearly disclose its financial relationship; no referral attribution is silently added to requests.
+The gateway's ZDR statement applies to its own infrastructure; upstream retention and routing policies need separate verification. See [OrcaRouter ZDR](https://docs.orcarouter.ai/operations/zero-data-retention) and [response metadata](https://docs.orcarouter.ai/routing/response-headers). The referral relationship is disclosed [above](#referral-disclosure); it is not a security certification or an endorsement of every upstream provider or model.

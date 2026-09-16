@@ -1,6 +1,16 @@
-# AegisCodeAgent
+<p align="center">
+  <img src="docs/assets/aegis-pr-gate-harmony.png" alt="AegisCodeAgent" width="96" height="96" />
+</p>
 
-[English](README.md) | [简体中文](README.zh-CN.md) | [日本語](README.ja.md) | [Español](README.es.md)
+<h1 align="center">AegisCodeAgent</h1>
+
+<p align="center">
+  <a href="README.md">English</a> | <a href="README.zh-CN.md">简体中文</a> | <a href="README.ja.md">日本語</a> | <a href="README.es.md">Español</a>
+</p>
+
+<p align="center">
+  <a href="https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85"><img src="https://www.orcarouter.ai/orca-logo-classic.png" alt="OrcaRouter" height="32" /> OrcaRouter</a> · <a href="docs/providers.md#referral-disclosure">可选模型服务 · 推广关系说明</a>
+</p>
 
 **运行在 GitHub PR 中的 Go 代码评审 Agent。** 结合静态分析、仓库上下文、模型推理和独立证据验证，输出 P0–P3 风险结论、代码行标注与 HTML 证据报告。无需部署独立 App 或常驻服务。
 
@@ -89,11 +99,23 @@ jobs:
 
 `REPLACE_WITH_RELEASE_COMMIT_SHA` 必须替换为**已经审核、发布且包含该 Workflow 的完整提交 SHA**。它不是可以直接运行的版本名；本文不声称 `v1` 标签已经发布。
 
-在 **Settings → Secrets and variables → Actions** 添加模型 Key。使用 OrcaRouter 时，改为 `provider: orcarouter`、选择经过测试的模型 ID（预设示例 `deepseek/deepseek-v4-flash`），并引用 `secrets.ORCAROUTER_API_KEY`。模型可用性以实际服务为准。不使用模型时设置 `provider: none`，省略 secrets。
+在 **Settings → Secrets and variables → Actions** 添加模型 Key。OrcaRouter 的配置方式与接入状态见下一节。不使用模型时设置 `provider: none`，省略 secrets。
 
 Fork/Dependabot PR 不取得模型凭据；无评论写权限时，仍通过 Checks、Summary 和 Artifact 查看结果。设置 `require-agent: true` 会有意阻断这种静态降级。上下文/可选模型的降级不会凭空变成 P0/P1，但必需证据缺失仍默认失败。
 
 完整参数、权限、首次升级迁移和依赖限制见 [GitHub 接入说明](docs/github-action.md)。旧 Base 尚不支持新 Sandbox/Publisher 时，首次迁移 PR 会 fail closed，需要维护者审核迁移，不能通过编译 Head 的评审器来绕过信任边界。
+
+## 可选模型服务：OrcaRouter
+
+Aegis 已实现 OrcaRouter 可选 Provider，可通过其兼容 API 接入模型。你仍可选择 DeepSeek 直连、其他显式配置的 Provider，或不调用模型的静态评审模式。
+
+1. [通过 Aegis 推荐链接注册](https://www.orcarouter.ai/ref/ref_7d9895701ff01fc94d85)，也可以直接访问 [OrcaRouter 官网](https://www.orcarouter.ai/)，创建自己的 API Key。
+2. 将密钥以 `ORCAROUTER_API_KEY` 保存到环境变量或 GitHub Actions Secrets，**不要写入源码或 JSON 配置**。
+3. CLI 使用 `--agent-provider orcarouter`。API 地址为 `https://api.orcarouter.ai/v1`；`deepseek/deepseek-v4-flash` 是可修改的模型预设，不代表已完成真实 API 验收。使用前请确认模型可用性与能力。[完整命令和配置](docs/providers.md#orcarouter)。
+
+> **接入状态：** Provider 适配和模拟接口契约测试已实现；OrcaRouter 真实 API 验收仍待完成。当前实际 PR 工作流仍选择 DeepSeek；可复用 Workflow 的 `provider: orcarouter` 配置需在阶段 2 启用并验收后使用，单独添加 Secret 不会切换当前工作流。
+
+**推广关系说明：** 通过推荐链接建立归因的工作区产生符合计划条件的付费使用时，项目维护者可能获得 5% 分成，具体以合作计划条款为准。是否使用完全自愿，不绑定模型服务商。OrcaRouter 图标用于标识可选模型服务集成，不代表目录审核通过或 OrcaRouter 为项目背书。[详细说明](docs/providers.md#referral-disclosure)。
 
 ## 本地开发与调试
 
