@@ -3,6 +3,7 @@ package report
 import (
 	"bytes"
 	_ "embed"
+	"encoding/base64"
 	"fmt"
 	"html/template"
 	"sort"
@@ -15,6 +16,14 @@ import (
 
 //go:embed report_v2.css
 var htmlReportV2CSS string
+
+// This is an exact copy of docs/assets/aegis-pr-gate-harmony.png. Embedding keeps
+// the standalone binary and downloaded reports independent of external assets.
+//
+//go:embed aegis-logo.png
+var htmlReportLogoPNG []byte
+
+var htmlReportLogoDataURL = "data:image/png;base64," + base64.StdEncoding.EncodeToString(htmlReportLogoPNG)
 
 type htmlReportView struct {
 	review.ReviewReport
@@ -59,6 +68,8 @@ var htmlReportTemplate = template.Must(template.New("review-report").Funcs(templ
 	"priorityLabel":     func(value githubreport.Priority) string { return strings.ToUpper(string(value)) },
 	// #nosec G203 -- compiled-in CSS only; no PR, model or configuration data enters this value.
 	"reportCSS": func() template.CSS { return template.CSS(htmlReportV2CSS) },
+	// #nosec G203 -- the URL contains only the compiled-in PNG, never report or configuration input.
+	"reportLogoURL": func() template.URL { return template.URL(htmlReportLogoDataURL) },
 	// #nosec G203 -- these literal publication slots contain no report input.
 	"reportActionMarker": func() template.HTML { return template.HTML("<!--AEGIS_REPORT_ACTION-->") },
 	// #nosec G203 -- literal slot, replaced only by the trusted Pages decorator.
@@ -496,7 +507,7 @@ const htmlTemplateSource = `<!doctype html>
     }
 
     .brand { display: flex; align-items: center; gap: 12px; }
-    .brand-mark { width: 31px; height: 35px; color: var(--indigo); }
+    .brand-mark { display: block; width: 48px; height: 48px; flex-shrink: 0; object-fit: contain; }
     .brand-name {
       display: block;
       font: 700 15px/1 var(--display);
@@ -882,10 +893,7 @@ const htmlTemplateSource = `<!doctype html>
   <main class="report-shell">
     <header class="masthead">
       <div class="brand">
-        <svg class="brand-mark" viewBox="0 0 32 36" aria-hidden="true">
-          <path d="M16 1.8 29 6.7v9.9c0 8.2-5.2 14.6-13 17.6C8.2 31.2 3 24.8 3 16.6V6.7L16 1.8Z" fill="none" stroke="currentColor" stroke-width="2"/>
-          <path d="m10.1 18.4 3.8 3.8 8.5-9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="square"/>
-        </svg>
+        <img class="brand-mark" src="{{reportLogoURL}}" width="48" height="48" alt="" aria-hidden="true">
         <div><span class="brand-name">Aegis</span><span class="brand-kind">AegisCodeAgent</span></div>
       </div>
       <nav class="masthead-nav" aria-label="报告导航"><a href="#findings-heading">代码审查</a><a href="#decision-heading">审核过程</a><a href="#files-heading">变更文件</a></nav>

@@ -10,7 +10,7 @@ a:focus-visible,summary:focus-visible,pre:focus-visible { outline:3px solid #246
 .report-shell { width:100%; max-width:none; margin:0; background:none; border:0; box-shadow:none; animation:none; }
 .masthead { min-height:72px; padding:14px max(32px,calc((100% - 1360px)/2)); gap:44px; background:#fff; border-color:var(--line); }
 .brand { flex:0 0 auto; gap:10px; }
-.brand-mark { width:27px; height:31px; color:#459eff; }
+.brand-mark { display:block; width:48px; height:48px; flex-shrink:0; object-fit:contain; }
 .brand-name { font:650 26px/1.2 var(--display); letter-spacing:-.7px; }
 .brand-kind { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
 .masthead-nav { display:flex; gap:32px; align-items:center; }

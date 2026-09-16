@@ -3,6 +3,7 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { validateRecord, recordPath, escapeHTML: h } = require('./report-pages-common.cjs');
+const { brand } = require('./report-brand.cjs');
 
 // Trusted, embedded assets. Published pages remain usable offline with no scripts,
 // remote fonts or third-party resources; all evidence-derived text is escaped.
@@ -15,11 +16,6 @@ const descriptions = {
   incomplete: '没有完整证据，暂不能给出通过结论。',
 };
 const symbols = { passed: '✓', degraded: '!', blocked: '×', incomplete: '−' };
-
-// Reuse Aegis's existing shield mark from internal/report/html.go.
-function brand() {
-  return '<span class="ap-brand-mark" aria-hidden="true"><svg viewBox="0 0 32 36"><path d="M16 1.8 29 6.7v9.9c0 8.2-5.2 14.6-13 17.6C8.2 31.2 3 24.8 3 16.6V6.7L16 1.8Z" fill="none" stroke="currentColor" stroke-width="2"/><path d="m10.1 18.4 3.8 3.8 8.5-9" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></span><span class="ap-wordmark">Aegis</span>';
-}
 
 function doc(title, body) {
   return '<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">' +
@@ -118,7 +114,8 @@ function renderIndex(records) {
 
 function renderDiagnostic(record) {
   validateRecord(record);
-  return doc('Aegis · 评审未完成', '<main class="ap-diagnostic"><div class="ap-diagnostic-icon" aria-hidden="true">!</div>' +
+  return doc('Aegis · 评审未完成', `<header class="ap-topbar"><div class="ap-brand">${brand()}</div><span class="ap-repo-link">评审未完成</span></header>` +
+    '<main class="ap-diagnostic"><div class="ap-diagnostic-icon" aria-hidden="true">!</div>' +
     `<h1>还不能给出评审结论</h1><p class="ap-diagnostic-lead">本次运行未取得可验证的完整证据。<br>这不是一份“没有问题”的报告。</p>` +
     `<div class="ap-diagnostic-reason"><h2>需要检查的原因</h2><p>${h(record.diagnostic || '没有可验证的报告证据。')}</p></div>` +
     `<a class="ap-button" href="${h(record.run_url)}">查看工作流日志 <span aria-hidden="true">↗</span></a>` +

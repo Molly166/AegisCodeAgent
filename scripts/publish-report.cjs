@@ -3,6 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
+const { brand } = require('./report-brand.cjs');
+const styles = fs.readFileSync(path.join(__dirname, 'report-pages-view.css'), 'utf8');
 
 function readEvidence(file, base, head) {
   for (const value of [base, head]) {
@@ -30,10 +32,12 @@ function executionCompatible(report, result, code) {
 
 function writeFailureReport(output, message) {
   const escaped = message.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-  fs.writeFileSync(path.join(output, 'review.html'), '<!doctype html><html lang="en"><meta charset="utf-8">' +
+  fs.writeFileSync(path.join(output, 'review.html'), '<!doctype html><html lang="en"><head><meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width,initial-scale=1"><title>Aegis — review incomplete</title>' +
-    '<body><main><h1>Review incomplete — merge gate blocked</h1><p>' + escaped +
-    '</p><p>No clean review conclusion is available. Inspect the workflow diagnostics before rerunning.</p></main></body></html>');
+    '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; base-uri \'none\'; form-action \'none\'">' +
+    `<style>${styles}</style></head><body class="aegis-pages"><header class="ap-topbar"><div class="ap-brand">${brand()}</div></header>` +
+    '<main class="ap-diagnostic"><div class="ap-diagnostic-icon" aria-hidden="true">!</div><h1>Review incomplete — merge gate blocked</h1><p class="ap-diagnostic-lead">' + escaped +
+    '</p><p class="ap-diagnostic-foot">No clean review conclusion is available. Inspect the workflow diagnostics before rerunning.</p></main></body></html>');
 }
 
 function publish(env = process.env) {

@@ -6,6 +6,8 @@
 
 Palette targets: deep indigo main branch `#344A78`, dusty blue side branch `#6C8EC4`, and jade-green check `#3C9A7C`. Generated raster shading may vary slightly from these target colors.
 
+The same PNG is copied to `internal/report/aegis-logo.png` for embedding in the Go binary and in the public-report publisher. Generated HTML carries the image as a data URI, so it needs no network access or separate image file. When updating the approved logo, update both copies; regression tests check that they remain identical. The logo is branding only and does not replace the report's risk or merge-gate status indicators.
+
 This is a project visual, not a security certification or a claim of trademark clearance. The README distinguishes Aegis's project identity from optional model providers.
 
 ### Current icon: palette edit prompt
