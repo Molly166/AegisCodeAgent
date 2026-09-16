@@ -1,8 +1,8 @@
 # 在其他仓库安装 Aegis
 
-> **先确认迁移阶段，再使用本文的接入配置。** `examples/aegis-review-v1-migration.yml` 仍存在时，处于阶段 1：实际 `.github/workflows/aegis-review.yml` 保留升级前 `master` 的旧工作流。新版四 Job、Docker 隔离和可复用入口只是代码与待验收方案，尚未在该版本的 PR 工作流中启用。只有待启用文件已移除、实际工作流已切换为 v1，才属于阶段 2；切换配置本身也不等于线上验收通过。
+> **本修订已完成阶段 2 的配置切换，线上验收待完成。** `.github/workflows/aegis-review.yml` 现在包含四 Job、Docker 隔离和 `workflow_call` 入口，原暂存文件已移除。激活基线为已合入的可信 `master` `9fbdb52c75bb7fba33b2b58ac8e0e2ec70c91bac`。本地配置切换不等于 GitHub 已运行、外部仓库接入成功或分支保护已启用；各项证据和待办见 [v1 激活验收清单](v1-acceptance.md)。
 
-本文后续架构和安装示例针对**阶段 2 启用并通过验收后的 v1 工作流**。Aegis 以 **Reusable GitHub Workflow** 交付：调用方只需一个 YAML 和可选模型 Key；评审器、容器工具链、HTML、评论和合并检查由 Aegis 工作流负责。多 Job 设计让分析阶段与持有评论写权限的发布阶段运行在不同 runner 上。它不是需要自行部署的 Web 服务，也不是 `steps.uses` 形式的 Composite Action。
+本文后续架构对应当前 v1 配置；对外安装应选择**已合入并完成线上验收的固定修订**。Aegis 以 **Reusable GitHub Workflow** 交付：调用方只需一个 YAML 和可选模型 Key；评审器、容器工具链、HTML、评论和合并检查由 Aegis 工作流负责。多 Job 设计让分析阶段与持有评论写权限的发布阶段运行在不同 runner 上。它不是需要自行部署的 Web 服务，也不是 `steps.uses` 形式的 Composite Action。
 
 目前优先支持 Go 单模块仓库。跨文件语义分析、静态分析器与 Verifier 都以 Go 为主要语言；不要将它理解为所有语言都具有相同检测能力。
 
@@ -13,10 +13,10 @@
 为避免通过信任 PR Head 绕过边界，修复采用以下顺序：
 
 1. **阶段 1：`fix/aegis-v1-bootstrap-ci-20260908`。** 保留升级前的实际 Review 工作流，将新版评审器、DockerRunner、发布脚本与 CI 修复先送审；新版工作流暂存于 `examples/aegis-review-v1-migration.yml`，参与契约测试和 lint，但 GitHub 不会从 `examples/` 启动它。完成 CI、代码审核后，由维护者合入 `master`。本阶段仍使用旧单 Job/宿主执行路径，不具备新版独立 Publisher 与 Docker PR 执行边界；也不能把这个阶段的 SHA 用作下面的 `workflow_call` 安装版本。
-2. **阶段 2：`fix/aegis-v1-workflow-activation-20260908`。** 第一阶段合入后，确认 `master` 已包含所需可信能力，再将暂存工作流启用到 `.github/workflows/aegis-review.yml` 并删除暂存文件。确认第二阶段 PR 的 Base 是已升级的 `master`，然后验证四 Job、报告反馈与门禁。不得提前针对旧 Base 启用；仅在同一个 PR 中拆成两个 commit 不能解决此问题。
+2. **阶段 2：`feat/v1-workflow-activation-20260916`。** 从已包含前置实现及后续修复的 `master` `9fbdb52` 新建分支，将暂存工作流原样启用到 `.github/workflows/aegis-review.yml` 并移除暂存文件。本修订已完成此配置变更；推送后还需验证四 Job、报告反馈与门禁。不得提前针对旧 Base 启用；仅在同一个 PR 中拆成两个 commit 不能解决此问题。
 3. 两阶段都通过审核和线上验收后，才选择固定完整 SHA 供外部仓库复用。不要通过自动改用目标 Head、忽略检查错误或关闭门禁来完成迁移。
 
-上述两阶段替代 PR #12 的一次性升级路径；**不会自动关闭或合并 PR #12**。原 PR 保留用于故障追踪，是否关闭由维护者决定。分支名描述迁移计划，不代表已推送、已合入或线上检查已通过。
+上述两阶段替代 PR #12 的一次性升级路径；**不会自动关闭或合并任何 PR**。历史 PR 保留用于故障追踪，是否关闭由维护者决定。阶段 2 的本地配置和测试不代表已推送、已合入或线上检查已通过。报告发布器预先认可的 v1 工作流 SHA256 为 `5c1ca01490ab638d8ffa3c2835a79542ea48d49618ac79c1d746838c825c1cce`，本次原样迁移保持该身份不变。
 
 ## 1. 固定一个已审核的 Aegis 版本
 

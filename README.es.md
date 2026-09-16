@@ -16,11 +16,11 @@ Un agente de revisión de código centrado en Go que funciona dentro de los PR d
 
 > **Candidato de lanzamiento v1 en desarrollo.** Se han implementado workflows reutilizables, proveedores opcionales, análisis aislado y evaluación sobre código real. Esto no significa que exista una etiqueta publicada, una evaluación de calidad con API real o un sitio de informes desplegado. [Validación y límites](docs/validation.md).
 
-> **Migración en dos etapas:** mientras exista `examples/aegis-review-v1-migration.yml`, esta revisión está en la etapa 1 y conserva el workflow de PR antiguo. El workflow reutilizable de cuatro jobs con aislamiento descrito abajo **todavía no está activo**. La etapa 2 requiere integrar primero la implementación en el `master` confiable, eliminar ese archivo y activar v1 en el workflow real. El PR #12 mostró fallos de migración y CI; las correcciones aún requieren validación en GitHub. Sigue el [orden de migración](docs/github-action.md), sin confiar automáticamente en el Head objetivo. Activar la configuración no demuestra que el despliegue haya pasado las pruebas.
+> **Esta revisión selecciona la configuración V1.** Tras integrar la implementación en el `master` confiable, el workflow reutilizable de cuatro jobs con aislamiento está configurado en `.github/workflows/aegis-review.yml` y se ha eliminado la copia provisional. Esta activación local **no demuestra una ejecución correcta en GitHub**: la aceptación de PR en línea, del aislamiento Docker y de repositorios consumidores sigue pendiente hasta enviar y revisar esta revisión. No constituye una certificación de producción ni un lanzamiento publicado. Sigue la [lista de aceptación V1](docs/v1-acceptance.md) y el [límite de confianza de la migración](docs/github-action.md), sin confiar automáticamente en el Head objetivo.
 
 ## Funcionamiento y arquitectura
 
-Lo siguiente describe v1 después de activar y validar su workflow.
+Lo siguiente describe el diseño del workflow v1 seleccionado. Su comportamiento en línea aún requiere las pruebas de aceptación enlazadas arriba.
 
 ```text
 PR creado / actualizado → revisor confiable y Base/Head exactos
@@ -39,7 +39,7 @@ En la autorrevisión se compila el revisor desde el Base confiable; en otros rep
 
 ## Instalación en otro repositorio
 
-Después de validar la etapa 2, añade `.github/workflows/aegis.yml`; no copies el código fuente de Aegis al repositorio consumidor. El workflow antiguo de la etapa 1 no admite esta instalación mediante `workflow_call`.
+Después de que una revisión V1 auditada supere la [aceptación con un repositorio consumidor](docs/v1-acceptance.md), añade `.github/workflows/aegis.yml`; no copies el código fuente de Aegis. Esta revisión selecciona localmente la configuración `workflow_call`, pero la instalación externa aún no está validada. Las revisiones antiguas que solo contienen el workflow anterior no son destinos compatibles de instalación.
 
 ```yaml
 name: Aegis review
@@ -76,7 +76,7 @@ Aegis incluye un adaptador opcional para acceder a modelos mediante la API compa
 2. Guarda `ORCAROUTER_API_KEY` en el entorno o en GitHub Actions Secrets, nunca en el código fuente ni en JSON.
 3. En la CLI, selecciona `--agent-provider orcarouter`. El endpoint es `https://api.orcarouter.ai/v1`. El modelo preconfigurado `deepseek/deepseek-v4-flash` se puede cambiar; verifica su disponibilidad y capacidades antes de usarlo. [Comandos y configuración](docs/providers.md#orcarouter).
 
-> **Estado de la integración:** el adaptador y las pruebas de contrato con respuestas simuladas están implementados; la validación de aceptación con la API real de OrcaRouter sigue pendiente. El workflow de PR activo todavía selecciona DeepSeek. Usar `provider: orcarouter` en el workflow reutilizable requiere activar y validar la etapa 2.
+> **Estado de la integración:** el adaptador y las pruebas de contrato con respuestas simuladas están implementados; la aceptación con la API real de OrcaRouter sigue pendiente. La configuración de autorrevisión V1 sigue seleccionando DeepSeek. Una vez que una revisión auditada del workflow supere la [aceptación](docs/v1-acceptance.md), el workflow llamador reutilizable puede seleccionar explícitamente `provider: orcarouter`. Añadir un Secret no cambia por sí solo la autorrevisión a OrcaRouter.
 
 **Aviso sobre referidos:** según las condiciones del programa, el mantenedor puede recibir una comisión del 5% del gasto de pago elegible de los espacios de trabajo atribuidos al enlace. Su uso es voluntario y no limita la elección de proveedor. El logotipo identifica una integración opcional con un proveedor, no la aprobación para figurar en un directorio ni un respaldo. [Detalles](docs/providers.md#referral-disclosure).
 

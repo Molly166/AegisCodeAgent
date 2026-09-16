@@ -16,11 +16,11 @@
 
 > **当前为 v1 发布候选开发版。** 已实现可复用 Workflow、多 Provider、隔离分析和真实代码评测；不代表已发布版本标签、完成在线模型验收或部署报告网站。[已验证范围与限制](docs/validation.md)。
 
-> **两阶段迁移提示：** 仓库存在 `examples/aegis-review-v1-migration.yml` 时属于阶段 1，实际 PR 工作流保留旧版本，下文的四 Job 沙箱/可复用工作流**尚未启用**。先将实现合入可信 `master`，再删除暂存文件并将实际 `.github/workflows/aegis-review.yml` 切换为 v1，才进入阶段 2。PR #12 已暴露升级及 CI 失败，本轮修复仍待线上验收；配置切换也不等于上线通过。请按[两阶段顺序](docs/github-action.md)执行，不得默认信任目标 Head 来绕过。
+> **本修订已选择 V1 配置。** 实现已先合入可信 `master`，本修订将四 Job 沙箱/可复用工作流配置到 `.github/workflows/aegis-review.yml`，并删除暂存副本。这次本地配置启用**不代表 GitHub 已运行通过**：线上 PR、Docker 沙箱和外部仓库接入验收仍待推送、审核后完成；不代表生产认证或正式 Release。请按 [V1 验收清单](docs/v1-acceptance.md)和[可信迁移边界](docs/github-action.md)执行，不得默认信任目标 Head 来绕过。
 
 ## 新人先看：它如何工作？
 
-以下是 v1 工作流完成启用与验收后的行为：你向分支提交代码并创建/更新 PR，GitHub Actions 自动启动 Aegis，审核精确的 PR Head。完成后，在 PR 中更新同一条 Bot 评论，给出结论、问题位置和完整报告链接，并通过独立的 **Aegis merge gate** Check 返回门禁结果。
+本修订选择的 v1 工作流设计如下：创建/更新 PR 时，GitHub Actions 启动 Aegis，按精确的 PR Base/Head 进行审核。完成后，在 PR 中更新同一条 Bot 评论，给出结论、问题位置和完整报告链接，并通过独立的 **Aegis merge gate** Check 返回门禁结果。这些线上行为仍需通过上述验收清单验证。
 
 - **先看结论和 Findings：** 统一 P0–P3，展示代码位置、证据和建议。
 - **不把不确定当作没问题：** 未确认假设进入 `Needs Review`；执行不完整、覆盖降级单独展示。
@@ -73,7 +73,7 @@ Aegis 自身评审从可信 PR Base 编译评审器；其他仓库调用时，�
 
 ## 其他仓库如何开箱使用？
 
-阶段 2 完成验收后，只需添加一份 Workflow，无需复制 Aegis 源码或自行维护服务。阶段 1 的旧实际工作流不支持此 `workflow_call` 接入，不可用该阶段的 SHA 替换占位符。在目标仓库创建 `.github/workflows/aegis.yml`：
+已审核的 V1 修订通过[外部仓库验收](docs/v1-acceptance.md)后，只需添加一份 Workflow，无需复制 Aegis 源码或自行维护服务。本修订已在本地选择 `workflow_call` 配置，但外部接入尚未通过验收；仅包含旧工作流的历史修订仍不能用作接入版本。在目标仓库创建 `.github/workflows/aegis.yml`：
 
 ```yaml
 name: Aegis review
@@ -113,7 +113,7 @@ Aegis 已实现 OrcaRouter 可选 Provider，可通过其兼容 API 接入模型
 2. 将密钥以 `ORCAROUTER_API_KEY` 保存到环境变量或 GitHub Actions Secrets，**不要写入源码或 JSON 配置**。
 3. CLI 使用 `--agent-provider orcarouter`。API 地址为 `https://api.orcarouter.ai/v1`；`deepseek/deepseek-v4-flash` 是可修改的模型预设，不代表已完成真实 API 验收。使用前请确认模型可用性与能力。[完整命令和配置](docs/providers.md#orcarouter)。
 
-> **接入状态：** Provider 适配和模拟接口契约测试已实现；OrcaRouter 真实 API 验收仍待完成。当前实际 PR 工作流仍选择 DeepSeek；可复用 Workflow 的 `provider: orcarouter` 配置需在阶段 2 启用并验收后使用，单独添加 Secret 不会切换当前工作流。
+> **接入状态：** Provider 适配和模拟接口契约测试已实现；OrcaRouter 真实 API 验收仍待完成。V1 自评审配置继续选择 DeepSeek；已审核的工作流修订通过[验收](docs/v1-acceptance.md)后，可复用调用方可显式选择 `provider: orcarouter`。单独添加 Secret 不会将自评审切换到 OrcaRouter。
 
 **推广关系说明：** 通过推荐链接建立归因的工作区产生符合计划条件的付费使用时，项目维护者可能获得 5% 分成，具体以合作计划条款为准。是否使用完全自愿，不绑定模型服务商。OrcaRouter 图标用于标识可选模型服务集成，不代表目录审核通过或 OrcaRouter 为项目背书。[详细说明](docs/providers.md#referral-disclosure)。
 
