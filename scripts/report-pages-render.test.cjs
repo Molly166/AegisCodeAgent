@@ -124,7 +124,12 @@ test('missing evidence renders an escaped diagnostic without starting the render
   assert.ok(result.html.includes('评审未完成'));
   assert.ok(result.html.includes('&lt;img src=x onerror=alert(1)&gt;'));
   assert.ok(result.html.includes('&lt;script&gt;bad()&lt;/script&gt;'));
-  assert.equal(result.html.includes('<img'), false);
+  assert.equal(result.html.includes('<img src=x'), false);
+  const images = [...result.html.matchAll(/<img\b[^>]*>/gi)];
+  assert.equal(images.length, 1, 'only the trusted brand image may be emitted');
+  const encoded = images[0][0].match(/\bsrc="data:image\/png;base64,([A-Za-z0-9+/=]+)"/)?.[1];
+  assert.ok(encoded);
+  assert.deepEqual(Buffer.from(encoded, 'base64'), fs.readFileSync(path.join(__dirname, '../docs/assets/aegis-pr-gate-harmony.png')));
   assert.equal(result.html.includes('<script>'), false);
   assert.equal(result.html.includes('下载原始证据'), false);
   assert.match(result.html, /Content-Security-Policy/);

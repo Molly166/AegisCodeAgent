@@ -2,11 +2,31 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { spawnSync } = require('node:child_process');
 const { renderIndex, renderDiagnostic, decorateReport } = require('./report-pages-view.cjs');
 const { recordPath, validateRecord, escapeHTML } = require('./report-pages-common.cjs');
 
 const base = 'a'.repeat(40), head = 'b'.repeat(40);
 const policy = { fail_on: 'p1', fail_on_needs_review: 'p0', fail_on_incomplete: true, require_agent: false };
+const approvedLogo = fs.readFileSync(path.join(__dirname, '../docs/assets/aegis-pr-gate-harmony.png'));
+
+function assertTrustedBrand(html) {
+  const images = [...html.matchAll(/<img\b[^>]*>/gi)];
+  assert.equal(images.length, 1, 'only the trusted brand image may be emitted');
+  const image = images[0][0];
+  const encoded = image.match(/\bsrc="data:image\/png;base64,([A-Za-z0-9+/=]+)"/)?.[1];
+  assert.ok(encoded, 'brand must be an inline PNG, never an external image');
+  assert.deepEqual(Buffer.from(encoded, 'base64'), approvedLogo);
+  assert.match(image, /\balt=""/);
+  assert.match(image, /\bwidth="48" height="48"/);
+  assert.doesNotMatch(html, /<svg\b|M16 1\.8 29 6\.7|m10\.1 18\.4 3\.8 3\.8/);
+  assert.match(html, /\.ap-brand-mark img\s*\{[^}]*width:\s*48px;[^}]*height:\s*48px;[^}]*object-fit:\s*contain/);
+  assert.match(html, /\.ap-brand-mark img\s*\{[^}]*width:\s*44px;[^}]*height:\s*44px/);
+  assert.ok(html.includes("img-src data:"));
+}
 
 function report(overrides = {}) {
   return {
@@ -54,6 +74,23 @@ function priorityCount(html, priority) {
   assert.ok(match, `missing visible ${priority} count`);
   return match[1];
 }
+
+test('archive and diagnostic pages embed the exact approved PNG with an unchanged warning icon', () => {
+  assert.deepEqual(fs.readFileSync(path.join(__dirname, '../internal/report/aegis-logo.png')), approvedLogo);
+  for (const html of [renderIndex([record()]), renderIndex([]), renderDiagnostic(diagnosticRecord())]) {
+    assertTrustedBrand(html);
+    assert.doesNotMatch(html, /<script\b|\b(?:src|srcset)\s*=\s*["'](?:https?:)?\/\//i);
+  }
+  assert.match(renderDiagnostic(diagnosticRecord()), /<div class="ap-diagnostic-icon" aria-hidden="true">!<\/div>/);
+});
+
+test('brand and stylesheet paths resolve from the trusted module rather than the process cwd', () => {
+  const renderer = path.join(__dirname, 'report-pages-view.cjs');
+  const result = spawnSync(process.execPath, ['-e', `process.stdout.write(require(${JSON.stringify(renderer)}).renderIndex([]))`],
+    { cwd: os.tmpdir(), encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  assertTrustedBrand(result.stdout);
+});
 
 test('archive overview uses the recorded change intent and preserves the input evidence', () => {
   const input = record();
@@ -173,7 +210,8 @@ test('diagnostics escape failure evidence and retain the no-pass boundary', () =
   const input = diagnosticRecord({ diagnostic });
   const html = renderDiagnostic(input);
   assert.ok(html.includes(escapeHTML(diagnostic)));
-  assert.equal(html.includes('<img'), false);
+  assert.equal(html.includes('<img src=x'), false);
+  assertTrustedBrand(html);
   assert.equal(html.includes('<script>'), false);
   assert.match(html, /评审未完成/);
   assert.match(html, /Content-Security-Policy/);
@@ -269,7 +307,7 @@ test('archive empty state is explicit and does not invent evidence', () => {
   const html = renderIndex([]);
   assert.match(html, /暂无已发布报告/);
   assert.doesNotMatch(html, /href=["']reports\//);
-  assert.doesNotMatch(html, /undefined|NaN|\[object Object\]/);
+  assert.doesNotMatch(textContent(html), /undefined|NaN|\[object Object\]/);
 });
 
 test('report directory is a three-column document with a readable type floor', () => {

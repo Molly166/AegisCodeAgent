@@ -108,7 +108,7 @@ func TestDaylightEscapesUntrustedReviewEvidence(t *testing.T) {
 			t.Errorf("%s was dropped instead of being preserved as escaped text", name)
 		}
 	}
-	if regexp.MustCompile(`(?i)<(?:script|iframe|img|button)\b`).MatchString(document) {
+	if regexp.MustCompile(`(?i)<(?:script|iframe|img|button)\b`).MatchString(stripTrustedReportLogo(t, document)) {
 		t.Fatal("untrusted review content created an active HTML element")
 	}
 }
